@@ -1,0 +1,4 @@
+*.bat text eol=crlf
+*.rc  text eol=crlf
+*.bas text eol=crlf
+*.bi  text eol=crlf

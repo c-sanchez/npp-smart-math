@@ -1,0 +1,472 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  SmartMath auto-completion for Notepad++.
+  Filename and language must match the UDL name "SmartMath".
+  Install: copy to <Notepad++>\autoCompletion\SmartMath.xml (install dir, not %AppData%).
+-->
+<NotepadPlus>
+	<AutoComplete language="SmartMath">
+		<Environment ignoreCase="yes" startFunc="(" stopFunc=")" paramSeparator="," terminal="" />
+		<KeyWord name="abs" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="acos" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="acosh" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="and" />
+		<KeyWord name="ans" />
+		<KeyWord name="arccos" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="arcsin" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="arctan" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="asin" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="asinh" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="atan" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="atan2" func="yes">
+			<Overload retVal="" >
+				<Param name="y" />
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="atanh" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="avg" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="bin" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="cart" func="yes">
+			<Overload retVal="" >
+				<Param name="c" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="ceil" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="clamp" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+				<Param name="min" />
+				<Param name="max" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="conj" func="yes">
+			<Overload retVal="" >
+				<Param name="c" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="cos" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="cosh" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="day" />
+		<KeyWord name="days" func="yes">
+			<Overload retVal="" >
+				<Param name="t" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="deg" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="exp" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="fact" func="yes">
+			<Overload retVal="" >
+				<Param name="n" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="factorial" func="yes">
+			<Overload retVal="" >
+				<Param name="n" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="factorint" func="yes">
+			<Overload retVal="" >
+				<Param name="n" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="flat" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="floor" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="frac" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="fract" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="gcd" func="yes">
+			<Overload retVal="" >
+				<Param name="a" />
+				<Param name="b" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="hex" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="hour" />
+		<KeyWord name="hours" func="yes">
+			<Overload retVal="" >
+				<Param name="t" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="hypot" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+				<Param name="y" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="i" />
+		<KeyWord name="imag" func="yes">
+			<Overload retVal="" >
+				<Param name="c" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="inf" />
+		<KeyWord name="int" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="lcm" func="yes">
+			<Overload retVal="" >
+				<Param name="a" />
+				<Param name="b" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="len" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="length" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="ln" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="log" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+				<Param name="base" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="log10" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="max" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="mean" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="median" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="millisecond" />
+		<KeyWord name="milliseconds" func="yes">
+			<Overload retVal="" >
+				<Param name="t" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="min" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="minute" />
+		<KeyWord name="minutes" func="yes">
+			<Overload retVal="" >
+				<Param name="t" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="mod" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+				<Param name="y" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="nan" />
+		<KeyWord name="ncr" func="yes">
+			<Overload retVal="" >
+				<Param name="n" />
+				<Param name="r" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="not" />
+		<KeyWord name="npr" func="yes">
+			<Overload retVal="" >
+				<Param name="n" />
+				<Param name="r" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="oct" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="or" />
+		<KeyWord name="phase" func="yes">
+			<Overload retVal="" >
+				<Param name="c" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="polar" func="yes">
+			<Overload retVal="" >
+				<Param name="c" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="pow" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+				<Param name="y" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="prod" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="product" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="rad" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="rand" func="yes">
+			<Overload retVal="" >
+			</Overload>
+		</KeyWord>
+		<KeyWord name="random" func="yes">
+			<Overload retVal="" >
+				<Param name="min" />
+				<Param name="max" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="range" func="yes">
+			<Overload retVal="" >
+				<Param name="start" />
+				<Param name="stop" />
+				<Param name="step" />
+			</Overload>
+			<Overload retVal="" >
+				<Param name="start" />
+				<Param name="stop" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="ratio" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="real" func="yes">
+			<Overload retVal="" >
+				<Param name="c" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="repeat" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+				<Param name="n" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="reverse" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="reversed" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="round" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="second" />
+		<KeyWord name="seconds" func="yes">
+			<Overload retVal="" >
+				<Param name="t" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="sign" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="sin" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="sinh" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="sort" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="sortby" func="yes">
+			<Overload retVal="" >
+				<Param name="a" />
+				<Param name="f" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="sorted" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="sqr" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="sqrt" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="stddev" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="sum" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="tan" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="tanh" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="trunc" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="ubin" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="uhex" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="unique" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="unpack" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="uoct" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="variance" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+	</AutoComplete>
+</NotepadPlus>

@@ -25,6 +25,10 @@ end type
 
 type SCNotification
   nmhdr as NMHDR
+  position as integer
+  ch as long
+  modifiers as long
+  modificationType as long
 end type
 
 type PFUNCPLUGINCMD as sub cdecl ()

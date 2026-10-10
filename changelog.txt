@@ -1,0 +1,23 @@
+SmartMath 1.2
+--------------
+* major update
++ built-in and user-defined functions
++ array values: `(10, 20, 30)`
++ Python-style array slicing: `a = (1, 2, 3, 4); a[1:-1]`
++ time values: `1:30`, `1m 30s`
++ complex numbers: `1 + 2i`
++ syntax highlighting: "userDefineLangs\SmartMath.udl.xml"
++ autocompletion: "autoCompletion\SmartMath.xml"
++ new menu item: "Show Errors" (toggles error messages in the results)
++ new menu item: "Syntax Highlighting" (applies the "SmartMath.udl.xml")
++ new menu item: "Documentation..." (opens the "SmartMath-Eng.md")
++ optimized 32-bit and 64-bit versions
+
+
+SmartMath 1.0
+-------------
+* initial release
++ real-time mathematical evaluation
++ percentage calculations: `20 + 5%`
++ variables: `x = 10`
++ 32-bit and 64-bit versions

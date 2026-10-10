@@ -1,10 +1,10 @@
-100 BITMAP "Toolbar.bmp"
-101 ICON "Toolbar.ico"
-102 ICON "ToolbarDark.ico"
+100 BITMAP "Res/Toolbar.bmp"
+101 ICON "Res/Toolbar.ico"
+102 ICON "Res/ToolbarDark.ico"
 
 1 VERSIONINFO
-FILEVERSION 1,0,0,0
-PRODUCTVERSION 1,0,0,0
+FILEVERSION 1,2,0,0
+PRODUCTVERSION 1,2,0,0
 FILEOS 0x4
 FILETYPE 0x2
 {
@@ -14,12 +14,12 @@ FILETYPE 0x2
     {
       VALUE "CompanyName", "csanchez"
       VALUE "FileDescription", "SmartMath Plugin for Notepad++"
-      VALUE "FileVersion", "1.0.0.0"
+      VALUE "FileVersion", "1.2.0.0"
       VALUE "InternalName", "SmartMath"
-      VALUE "LegalCopyright", "Copyright (C) 2023"
+      VALUE "LegalCopyright", "Copyright (C) 2026"
       VALUE "OriginalFilename", "SmartMath.dll"
       VALUE "ProductName", "SmartMath Plugin"
-      VALUE "ProductVersion", "1.0.0.0"
+      VALUE "ProductVersion", "1.2.0.0"
     }
   }
   BLOCK "VarFileInfo"
