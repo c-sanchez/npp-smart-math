@@ -1,6 +1,7 @@
 SmartMath 1.3
 -------------
-- internal improvements and bug-fixes for edge cases 
+- internal improvements and bug-fixes for edge cases
+* preserve the selected SmartMath syntax, either dark or not
 
 
 SmartMath 1.2
