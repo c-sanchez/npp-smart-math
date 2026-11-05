@@ -48,7 +48,9 @@ dim shared as boolean isNppClosing = FALSE
 dim shared as WNDPROC oldSciProc = 0
 dim shared as boolean g_cacheReady = FALSE
 dim shared as string g_cachePath
-dim shared as integer g_smartMathUdlCmdId = 0
+dim shared as UINT g_smartMathUdlStandardCmdId = 0 ' standard mode
+dim shared as UINT g_smartMathUdlDarkCmdId = 0 ' dark mode
+dim shared as UINT g_smartMathUdlCmdId = 0 ' the expected one (either standard or dark)
 dim shared as wstring * MAX_PATH nppRootDir ' set by initCommonPaths()
 dim shared as wstring * MAX_PATH smartmathDllDir ' set by initCommonPaths()
 dim shared as wstring * MAX_PATH documentationFilePath ' set by initCommonPaths()
@@ -57,8 +59,8 @@ redim shared g_cachedLineText(0 to 0) as string
 redim shared g_cachedResult(0 to 0) as string
 
 declare sub UpdateAnnotations(byval forceFull as boolean = FALSE, byval startLine as integer = -1)
-declare function getSmartMathUdlId() as integer
-declare sub ApplySmartMathUDL()
+declare function getSmartMathUdlId() as UINT
+declare sub ApplySmartMathUDL(byval forceExact as boolean = FALSE)
 declare sub SetPrecision(p as integer, byval saveConfig as boolean)
 declare function CopyResultForLine(byval hScintilla as HWND, byval lineIdx as integer) as boolean
 declare function SciSubclassProc(byval hWnd as HWND, byval uMsg as UINT, byval wParam as WPARAM, byval lParam as LPARAM) as LRESULT
@@ -68,24 +70,30 @@ sub DllLoad() constructor
   GetModuleHandleEx(cFlags, cast(any ptr, @DllLoad), @hInst)
 end sub
 
-function getSmartMathUdlId() as integer
-  dim as integer baseId = 0, nUdl, i, cmdId
+function getSmartMathUdlId() as UINT
+  dim as integer firstUdlId = 0, nUdl, i, cmdId
   dim as boolean isDarkMode
   dim as wstring * 256 itemName
   dim as HMENU hMenu = GetMenu(nppData._nppHandle)
   if hMenu = 0 then return 0
 
   isDarkMode = SendMessage(nppData._nppHandle, NPPM_ISDARKMODEENABLED, 0, 0) <> 0
-  nUdl = SendMessage(nppData._nppHandle, NPPM_GETNBUSERLANG, 0, cast(LPARAM, @baseId))
+  nUdl = SendMessage(nppData._nppHandle, NPPM_GETNBUSERLANG, 0, cast(LPARAM, @firstUdlId))
   if nUdl <= 0 then return 0
 
+  g_smartMathUdlStandardCmdId = 0
+  g_smartMathUdlDarkCmdId = 0
+
   for i = 1 to nUdl
-    cmdId = baseId + i
-    if GetMenuStringW(hMenu, cmdId, cast(LPWSTR, @itemName), 255, MF_BYCOMMAND) > 0 then
-      if isDarkMode then
-        if itemName = UDL_NAME_DARK then return cmdId
-      else
-        if itemName = UDL_NAME then return cmdId
+    cmdId = firstUdlId + i
+    if GetMenuStringW(hMenu, cast(UINT, cmdId), cast(LPWSTR, @itemName), 255, MF_BYCOMMAND) > 0 then
+      if (g_smartMathUdlStandardCmdId = 0) andalso (itemName = UDL_NAME) then
+        g_smartMathUdlStandardCmdId = cast(UINT, cmdId)
+      elseif (g_smartMathUdlDarkCmdId = 0) andalso (itemName = UDL_NAME_DARK) then
+        g_smartMathUdlDarkCmdId = cast(UINT, cmdId)
+      end if
+      if (g_smartMathUdlStandardCmdId <> 0) andalso (g_smartMathUdlDarkCmdId <> 0) then
+        return iif(isDarkMode, g_smartMathUdlDarkCmdId, g_smartMathUdlStandardCmdId)
       end if
     end if
   next i
@@ -184,8 +192,17 @@ private sub verifySyntaxFilesExist()
   end if
 end sub
 
-sub ApplySmartMathUDL()
+sub ApplySmartMathUDL(byval forceExact as boolean = FALSE)
   if g_smartMathUdlCmdId = 0 then exit sub
+  if not forceExact then
+    ' either standard or dark one
+    dim as HMENU hMenu = GetMenu(nppData._nppHandle)
+    dim as UINT uState = GetMenuState(hMenu, g_smartMathUdlCmdId, MF_BYCOMMAND)
+    if (uState and MF_CHECKED) <> 0 then exit sub ' already checked
+    dim as UINT otherCmdId = iif(g_smartMathUdlCmdId = g_smartMathUdlStandardCmdId, g_smartMathUdlDarkCmdId, g_smartMathUdlStandardCmdId)
+    uState = GetMenuState(hMenu, otherCmdId, MF_BYCOMMAND)
+    if (uState and MF_CHECKED) <> 0 then exit sub ' the other is already checked
+  end if
   SendMessage(nppData._nppHandle, NPPM_MENUCOMMAND, 0, g_smartMathUdlCmdId)
 end sub
 
@@ -872,7 +889,7 @@ sub beNotified(byval pNotify as SCNotification ptr) export
     dim as integer prevUdlId = g_smartMathUdlCmdId
     g_smartMathUdlCmdId = getSmartMathUdlId()
     if (prevUdlId <> g_smartMathUdlCmdId) andalso Config_IsFileEnabled(GetCurrentPath()) then
-      if Config_GetSyntaxHighlight() then ApplySmartMathUDL()
+      if Config_GetSyntaxHighlight() then ApplySmartMathUDL(TRUE)
     end if
 
   end if
