@@ -111,6 +111,8 @@ const FB_STR_OR as string = "or"
 const FB_STR_PI as string = "pi"
 const FB_STR_E as string = "e"
 const FB_STR_I as string = "i"
+const FB_STR_EXPLICIT_FLOAT_FRAC as string = ".0"
+const FB_STR_FMT_SCIENTIFIC_16 as string = "%.15e"
 const FB_STR_INF as string = "inf"
 const FB_STR_NAN as string = "nan"
 const FB_STR_PAR as string = "()"
@@ -2157,6 +2159,16 @@ function TryGetExactInt64FromDouble(byval n as Double, byref outV as LongInt) as
   return TRUE
 end function
 
+'' Same restore as C++ makeScalarMaybeExact: an exact integer double within 2^53 keeps int metadata.
+private sub ValueSetScalarMaybeExact(byref v as EvalValue, byval n as Double)
+  dim asInt as LongInt
+  if TryGetExactInt64FromDouble(n, asInt) then
+    ValueSetInt64(v, asInt)
+  else
+    ValueSetScalar(v, n)
+  end if
+end sub
+
 '' True when imag exact metadata matches the stored float imag (guards stale imagExactInt64).
 private function ScalarImagExactMetadataMatchesFloat(byref sv as ScalarValue) as Boolean
   dim t as LongInt
@@ -2907,6 +2919,65 @@ private function TryFormatScalarNonFiniteText(byval d as Double, byref outText a
   return FALSE
 end function
 
+private function TextHasDecimalOrExponent(byref s as String) as Boolean
+  dim i as Integer
+  for i = 1 to len(s)
+    dim c as String = mid(s, i, 1)
+    if c = "." orelse c = "e" orelse c = "E" then return TRUE
+  next i
+  return FALSE
+end function
+
+'' 16 significant digits, trailing mantissa zeros removed, exponent at least 3 digits.
+private function FormatScientific16(byval d as Double) as String
+  dim buf as zstring * 64
+  if sprintf(@buf, FB_STR_FMT_SCIENTIFIC_16, d) < 0 then return "0"
+  dim s as String = buf
+  dim ePos as Integer = 0
+  dim i as Integer
+  for i = 1 to len(s)
+    dim c as String = mid(s, i, 1)
+    if c = "e" orelse c = "E" then
+      ePos = i
+      exit for
+    end if
+  next i
+  if ePos = 0 then return s
+  dim mant as String = left(s, ePos - 1)
+  dim expPart as String = mid(s, ePos + 1)
+  if instr(mant, ".") > 0 then
+    while len(mant) > 0 andalso right(mant, 1) = "0"
+      mant = left(mant, len(mant) - 1)
+    wend
+    if len(mant) > 0 andalso right(mant, 1) = "." then mant = left(mant, len(mant) - 1)
+  end if
+  dim expSign as String = "+"
+  if left(expPart, 1) = "-" then
+    expSign = "-"
+    expPart = mid(expPart, 2)
+  elseif left(expPart, 1) = "+" then
+    expPart = mid(expPart, 2)
+  end if
+  while len(expPart) > 1 andalso left(expPart, 1) = "0"
+    expPart = mid(expPart, 2)
+  wend
+  while len(expPart) < 3
+    expPart = "0" & expPart
+  wend
+  return mant & "e" & expSign & expPart
+end function
+
+'' Non-exact float text. General form with no fraction: ".0" at or below 2^53, scientific above it.
+private function FormatInexactDoubleText(byval d as Double) as String
+  dim nf as String
+  if TryFormatScalarNonFiniteText(d, nf) then return nf
+  if d = 0.0 then return "0"
+  dim s as String = ltrim(str(d))
+  if TextHasDecimalOrExponent(s) then return s
+  if abs(d) > FB_MAX_EXACT_INT_FROM_DOUBLE then return FormatScientific16(d)
+  return s & FB_STR_EXPLICIT_FLOAT_FRAC
+end function
+
 private function FormatIntPowerParts(byval baseV as LongInt, byval expV as ULongInt) as String
   if expV <= 1ull then return ltrim(str(baseV))
   return ltrim(str(baseV)) & FB_STR_DOUBLE_ASTERISK & ltrim(str(expV))
@@ -2924,7 +2995,7 @@ private function FormatScalarExactOrFloatText(byref sv as ScalarValue) as String
   if TryFormatIntPowerScalar(sv, powText) then return powText
   if sv.exactInt64Valid then return ltrim(str(sv.exactInt64))
   if sv.exactUInt64Valid then return ltrim(ULongIntToString(sv.exactUInt64))
-  return ltrim(str(sv.scalar))
+  return FormatInexactDoubleText(sv.scalar)
 end function
 
 private function FormatScalarRealPartPlain(byref sv as ScalarValue) as String
@@ -3022,8 +3093,8 @@ private function FormatComplexImagCoeffTail(byval ai as Double, byref negUnit as
     if ai < 0.0 then negUnit = TRUE
     return FB_STR_I
   end if
-  if ai < 0.0 then return "-" & ltrim(str(coeffAbs)) & FB_STR_I
-  return ltrim(str(coeffAbs)) & FB_STR_I
+  if ai < 0.0 then return "-" & FormatInexactDoubleText(coeffAbs) & FB_STR_I
+  return FormatInexactDoubleText(coeffAbs) & FB_STR_I
 end function
 
 private function FormatComplexImagCoeffTailFromScalar(byref sv as ScalarValue, byref negUnit as Boolean) as String
@@ -6998,7 +7069,7 @@ private function ApplyUnaryComplexSupportScalars(byval fnId as Integer, byref sc
       if IsNaNValue(ar) orelse IsNaNValue(ai) then
         ValueSetScalar(outV, MakeNaN())
       else
-        ValueSetScalar(outV, CalcHypot(ar, ai))
+        ValueSetScalarMaybeExact(outV, CalcHypot(ar, ai))
       end if
     case FUNC_SIGN
       if Parser_SupportComplexNumbers = FALSE then return FALSE
@@ -7304,7 +7375,7 @@ private function ValueApplyBinaryScalars(byref leftS as ScalarValue, byref right
     case CHAR_PLUS: ValueSetScalar(outV, leftS.scalar + rightS.scalar)
     case CHAR_MINUS: ValueSetScalar(outV, leftS.scalar - rightS.scalar)
     case CHAR_CARET
-      ValueSetScalar(outV, leftS.scalar ^ rightS.scalar)
+      ValueSetScalarMaybeExact(outV, leftS.scalar ^ rightS.scalar)
     case else: return FALSE
   end select
   return TRUE
@@ -7539,7 +7610,7 @@ private function ApplyScalarBinaryMathFunctionScalars(byref leftS as ScalarValue
   if fnId = FUNC_LOG then
     if Parser_SupportComplexNumbers = FALSE then
       if leftS.scalar <= 0 orelse rightS.scalar <= 0 orelse rightS.scalar = 1 then return FALSE
-      ValueSetScalar(outV, log(leftS.scalar) / log(rightS.scalar))
+      ValueSetScalarMaybeExact(outV, log(leftS.scalar) / log(rightS.scalar))
       return TRUE
     end if
     dim ar as Double, ai as Double, br as Double, bi as Double
@@ -7548,7 +7619,7 @@ private function ApplyScalarBinaryMathFunctionScalars(byref leftS as ScalarValue
     dim pureReal as Boolean
     pureReal = (ScalarHasNonzeroImaginaryPart(leftS) = FALSE andalso ScalarHasNonzeroImaginaryPart(rightS) = FALSE andalso ai = 0.0 andalso bi = 0.0)
     if pureReal andalso ar > 0.0 andalso br > 0.0 andalso br <> 1.0 then
-      ValueSetScalar(outV, log(ar) / log(br))
+      ValueSetScalarMaybeExact(outV, log(ar) / log(br))
       return TRUE
     end if
     if IsNaNValue(ar) orelse IsNaNValue(ai) orelse IsNaNValue(br) orelse IsNaNValue(bi) then
@@ -7591,7 +7662,7 @@ private function ApplyScalarBinaryMathFunctionScalars(byref leftS as ScalarValue
         end if
         dim ml as Double = CalcHypot(ar, ai)
         dim mr as Double = CalcHypot(br, bi)
-        ValueSetScalar(outV, CalcHypot(ml, mr))
+        ValueSetScalarMaybeExact(outV, CalcHypot(ml, mr))
         return TRUE
       end if
     end if
