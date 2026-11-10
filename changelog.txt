@@ -2,6 +2,8 @@ SmartMath 1.3
 -------------
 - internal improvements and bug-fixes for edge cases
 - corrected: floating-point vs. exact-integer results
+* changed: an empty array result is shown as `()`
++ new function: filter
 * preserve the selected SmartMath syntax, either dark or not
 
 

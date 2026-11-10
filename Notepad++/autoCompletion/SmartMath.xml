@@ -138,6 +138,12 @@
 				<Param name="n" />
 			</Overload>
 		</KeyWord>
+		<KeyWord name="filter" func="yes">
+			<Overload retVal="" >
+				<Param name="a" />
+				<Param name="f" />
+			</Overload>
+		</KeyWord>
 		<KeyWord name="flat" func="yes">
 			<Overload retVal="" >
 				<Param name="..." />
