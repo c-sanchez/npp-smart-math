@@ -694,7 +694,6 @@ Notes:
 
 - Aggregation functions flatten array inputs.
 - `sort`, `reverse`, `unique`, `flat`, `unpack`, `filter`, `sortby` and `repeat` return `()` when the value list is empty. A missing argument is still an error. `filter` and `sortby` still require a valid one-parameter function, and `repeat` still requires a positive integer count.
-- `sum`, `min`, `max`, and the other aggregates reject an empty collection.
 - `variance` and `stddev` use population formulas (`N`, not `N-1`).
 - With complex support enabled (see **Complex Numbers**):
   - `sum`, `product`, `avg`, `reverse`, `repeat`, `unique`, `flat`, `unpack`, and `len`/`length` accept complex scalars and arrays;

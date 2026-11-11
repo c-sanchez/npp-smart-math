@@ -5777,7 +5777,6 @@ private sub ScalarComplexPowIntegerNonneg(byval ar as Double, byval ai as Double
     dim ni as Double = cr * ai + ci * ar
     cr = nr
     ci = ni
-    if IsNonFiniteValue(cr) andalso IsNonFiniteValue(ci) then exit for
   next k
   outR = cr
   outI = ci
@@ -9338,6 +9337,10 @@ private function TryBuiltinRatio(byref fnName as String, args() as EvalValue, by
   dim vals() as ScalarValue
   dim c as Integer = CopySingleArgToScalarValues(args(0), vals(), FALSE)
   if c <= 0 then
+    if args(0).kind = VK_ARRAY then
+      ValueInitArrayLike(outV, 0, -1)
+      return TRUE
+    end if
     SetAtLeastOneArgError(fnName)
     return TRUE
   end if
@@ -9767,6 +9770,23 @@ private function TryApplyFactorial(byref v as EvalValue, byref outV as EvalValue
   return TryApplyFactorialScalarInt(n, outV)
 end function
 
+private function TryMapFactorialIntegerArray(byref arrV as EvalValue, byref outV as EvalValue) as Boolean
+  dim n as Integer = ValueArrayLen(arrV)
+  dim vals() as ScalarValue
+  redim vals(0 to n - 1)
+  dim lb as Integer = lbound(arrV.arr)
+  dim i as Integer
+  for i = 0 to n - 1
+    dim elem as EvalValue
+    dim tmp as EvalValue
+    ValueGetArrayElemAsScalar(arrV, lb + i, elem)
+    if TryApplyFactorial(elem, tmp) = FALSE then return FALSE
+    vals(i) = tmp.scalarValue
+  next i
+  ValueSetArrayFromScalarValues(outV, vals())
+  return TRUE
+end function
+
 ' Returns: 1 if outV has final passthrough result; 0 if vals()/c are collected; -1 on error (parseError set).
 private function TrySingleArgPassthroughOrCollect( _
   args() as EvalValue, _
@@ -9897,7 +9917,21 @@ private function CountAggregateScalarValueItems(args() as EvalValue) as Integer
   return n
 end function
 
+' TRUE when the call is finished: no arguments (error), or arguments that flatten to no scalars (()).
+private function TryFinishEmptyAggregate(args() as EvalValue, byref fnName as String, byref outV as EvalValue) as Boolean
+  if ubound(args) < lbound(args) then
+    SetAtLeastOneArgError(fnName)
+    return TRUE
+  end if
+  if CountAggregateScalarValueItems(args()) <= 0 then
+    ValueInitArrayLike(outV, 0, -1)
+    return TRUE
+  end if
+  return FALSE
+end function
+
 private function TryAggregateFoldByMode(byval mode as AggregateFoldMode, byval fnId as Integer, byref fnName as String, args() as EvalValue, byref outV as EvalValue) as Boolean
+  if TryFinishEmptyAggregate(args(), fnName, outV) then return TRUE
   select case mode
   case AFM_COMPLEX
   if ubound(args) = -1 then
@@ -9948,9 +9982,8 @@ private function TryAggregateFoldByMode(byval mode as AggregateFoldMode, byval f
   while ArgScalarValueWalkNext(args(), argIdxCx, elemIdxCx, svCx)
     ScalarLoadCartesian(svCx, brCx, biCx)
     if fnId = FUNC_PRODUCT then
+      ' A later 0 or sign change still applies after Inf (Inf*0 is NaN).
       ScalarComplexCartesianMul(arCx, aiCx, brCx, biCx, arCx, aiCx)
-      ' allow `Inf + N*i` or `N + Inf*i`
-      if IsNonFiniteValue(arCx) andalso IsNonFiniteValue(aiCx) then exit while
     else
       arCx += brCx
       aiCx += biCx
@@ -10045,8 +10078,8 @@ private function TryAggregateFoldByMode(byval mode as AggregateFoldMode, byval f
     dim v as Double
     while ArgScalarWalkNext(args(), argIdx, elemIdx, v)
       if fnId = FUNC_PRODUCT then
+        ' A later 0 or sign change still applies after Inf (Inf*0 is NaN).
         acc *= v
-        if IsNonFiniteValue(acc) then exit while
       else
         acc += v
       end if
@@ -10380,6 +10413,8 @@ private function TryHandleBuiltinSpecialScalars(byval fnId as Integer, byref fn 
     case FUNC_FACT
       if Parser_SupportComplexNumbers then
         if ApplyUnaryFunction(fn, args(0), outV) = FALSE then SetNumericErrorInFunction(fnName)
+      elseif args(0).kind = VK_ARRAY andalso ValueArrayLen(args(0)) > 0 then
+        if TryMapFactorialIntegerArray(args(0), outV) = FALSE then SetNonNegativeIntegerError(fnName)
       elseif TryApplyFactorial(args(0), outV) = FALSE then
         SetNonNegativeIntegerError(fnName)
       end if
