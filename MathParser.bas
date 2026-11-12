@@ -134,7 +134,6 @@ const FB_STR_PAR_X_COMMA_N as string = "(x, n)"
 const FB_STR_PAR_X as string = "(x)"
 const FB_STR_PAR_START_COMMA_STOP_COMMA_STEP as string = "(start, stop [, step])"
 const FB_STR_PAR_STEP_MUST_NOT_BE_ZERO as string = "() step must not be zero"
-const FB_STR_PAR_PRODUCES_NO_VALUES as string = "() produces no values"
 const FB_STR_PAR_PRODUCES_TOO_MANY_VALUES as string = "() produces too many values"
 const BUILTIN_MAX_PRODUCED_ITEMS as Integer = 1000
 const FB_STR_PAR_ANS as string = "(ans)"
@@ -4026,10 +4025,6 @@ private sub SetRangeStepZeroError(byref fnName as String)
   SetParseError(fnName & FB_STR_PAR_STEP_MUST_NOT_BE_ZERO)
 end sub
 
-private sub SetRangeEmptyError(byref fnName as String)
-  SetParseError(fnName & FB_STR_PAR_PRODUCES_NO_VALUES)
-end sub
-
 private sub SetTooManyValuesError(byref fnName as String)
   SetParseError(fnName & FB_STR_PAR_PRODUCES_TOO_MANY_VALUES)
 end sub
@@ -4995,8 +4990,8 @@ private function MapClampOverValue(byref valueV as EvalValue, byref minSv as Sca
     return ApplyClampScalar(valueV.scalarValue, minSv, maxSv, outV)
   end if
   if ubound(valueV.arr) < lbound(valueV.arr) then
-    parseError = 1
-    return FALSE
+    ValueInitArrayLike(outV, lbound(valueV.arr), ubound(valueV.arr))
+    return TRUE
   end if
   ValueInitArrayLike(outV, lbound(valueV.arr), ubound(valueV.arr))
   dim i as Integer
@@ -5639,8 +5634,8 @@ private function MapUnaryEvalValueById(byval fnId as Integer, byref inV as EvalV
     return ApplyUnaryBuiltin(fnId, inV.scalarValue, outV)
   end if
   if ubound(inV.arr) < lbound(inV.arr) then
-    parseError = 1
-    return FALSE
+    ValueInitArrayLike(outV, lbound(inV.arr), ubound(inV.arr))
+    return TRUE
   end if
   ValueInitArrayLike(outV, lbound(inV.arr), ubound(inV.arr))
   dim i as Integer
@@ -9680,13 +9675,13 @@ private function TryHandleBuiltinRange(byval fnId as Integer, byref fnName as St
   end if
 
   if (stepV > 0 andalso startV >= stopV) orelse (stepV < 0 andalso startV <= stopV) then
-    SetRangeEmptyError(fnName)
+    ValueInitArrayLike(outV, 0, -1)
     return TRUE
   end if
 
   dim estimated as ULongInt = EstimateRangeItemCount(startV, stopV, stepV)
   if estimated = 0ull then
-    SetRangeEmptyError(fnName)
+    ValueInitArrayLike(outV, 0, -1)
     return TRUE
   end if
   if AcceptProducedItemCount(fnName, estimated) = FALSE then return TRUE
@@ -10413,8 +10408,12 @@ private function TryHandleBuiltinSpecialScalars(byval fnId as Integer, byref fn 
     case FUNC_FACT
       if Parser_SupportComplexNumbers then
         if ApplyUnaryFunction(fn, args(0), outV) = FALSE then SetNumericErrorInFunction(fnName)
-      elseif args(0).kind = VK_ARRAY andalso ValueArrayLen(args(0)) > 0 then
-        if TryMapFactorialIntegerArray(args(0), outV) = FALSE then SetNonNegativeIntegerError(fnName)
+      elseif args(0).kind = VK_ARRAY then
+        if ValueArrayLen(args(0)) <= 0 then
+          ValueInitArrayLike(outV, 0, -1)
+        elseif TryMapFactorialIntegerArray(args(0), outV) = FALSE then
+          SetNonNegativeIntegerError(fnName)
+        end if
       elseif TryApplyFactorial(args(0), outV) = FALSE then
         SetNonNegativeIntegerError(fnName)
       end if
@@ -10460,9 +10459,12 @@ private function TryHandleBuiltinBaseFormat(byval fnId as Integer, byref fnName 
     outV = args(0)
   else
     dim formatVals() as ScalarValue
-    c = CollectRequiredArgsAsScalarValues(args(), formatVals(), fnName)
-    if c <= 0 then return TRUE
-    ValueSetArrayFromScalarValues(outV, formatVals())
+    c = CollectArgsAsScalarValues(args(), formatVals())
+    if c <= 0 then
+      ValueInitArrayLike(outV, 0, -1)
+    else
+      ValueSetArrayFromScalarValues(outV, formatVals())
+    end if
   end if
   ApplyBuiltinFormatRenderMeta(fnId, outV)
   return TRUE
@@ -10479,8 +10481,11 @@ private function TryHandleBuiltinDegRad(byval fnId as Integer, byref fn as Strin
     return TRUE
   end if
   dim angleVals() as ScalarValue
-  dim c as Integer = CollectRequiredArgsAsScalarValues(args(), angleVals(), fnName)
-  if c <= 0 then return TRUE
+  dim c as Integer = CollectArgsAsScalarValues(args(), angleVals())
+  if c <= 0 then
+    ValueInitArrayLike(outV, 0, -1)
+    return TRUE
+  end if
   dim angleArr as EvalValue
   ValueSetArrayFromScalarValues(angleArr, angleVals())
   if MapUnaryEvalValueById(fnId, angleArr, outV) = FALSE then SetNumericErrorInFunction(fnName)

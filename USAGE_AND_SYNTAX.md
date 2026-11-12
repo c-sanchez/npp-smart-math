@@ -160,6 +160,10 @@ Notes:
   - `6/(10,20,30)` -> `(0.6, 0.3, 0.2)`
   - `(1,2,3)+(10,20,30)` -> `(11, 22, 33)`
   - `2**(3,5,6)` -> `(8, 32, 64)`
+- An empty array has no elements. Element-wise math returns `()`:
+  - `sin(())` -> `()`
+  - `()+1` -> `()`
+  - `()+(1,2)` -> error (`incompatible operands`)
 - Index arrays with `[index]`:
   - `(10,20,30)[0]` -> `10` (first element)
   - `(10,20,30)[-1]` -> `30` (last element)
@@ -375,6 +379,7 @@ Recommendation: use `==` for equality checks to avoid confusion.
 Logical note (scalar vs array):
 - `!x` / `not x` are logical NOT and always return a scalar (`1` or `0`).
 - Non-empty arrays are always treated as truthy in logical operators, so `!(0,0)`, as well as `not (0,0)`, evaluates to `0`.
+- An empty array is falsy, so `!()` and `not ()` evaluate to `1`, `() && 1` evaluates to `0`, and `() || 0` evaluates to `0`.
 - Precedence contrast (only in mixed expressions):
   - `!2==1` -> `0`
   - `not 2==1` -> `1`
@@ -386,7 +391,7 @@ Recommendation: parenthesize when using `not` in complex expressions.
 
 ### Arrays in Logical and Bitwise Operators (With Arrays)
 
-- `x && y` and `x || y` are logical and return a scalar (`1` or `0`). If an operand is a non-empty array, that operand is considered truthy.
+- `x && y` and `x || y` are logical and return a scalar (`1` or `0`). If an operand is a non-empty array, that operand is considered truthy. An empty array is falsy.
   - `(0,0) && 1` -> `1`
   - `0 || (0,0)` -> `1`
 - `x & y`, `x ^ y`, and `x | y` are bitwise and work element-wise:
@@ -403,6 +408,7 @@ Recommendation: parenthesize when using `not` in complex expressions.
   - Example: `(1,2,3) < (1,3)` -> `1` because the second item `2` < `3`.
   - Example: `(1,2,0) >= (1,2)` -> `1` because the values are equal until the end of the 2nd array.
   - Example: `(1,2) == sort(2,1)` -> `1` because the arrays are equal after sorting.
+  - Example: `() == ()` -> `1`, and `() == 0` -> `0`, because an empty array has length 0.
 
 ### Chained Comparisons Warning
 
@@ -687,13 +693,14 @@ Purpose: aggregate and transform values/lists.
   - `range(1, 4)` -> `(1, 2, 3)`
   - `range(1, 10, 3)` -> `(1, 4, 7)`
   - `range(10, 0, -2)` -> `(10, 8, 6, 4, 2)`
+  - `range(1, 1)` -> `()`
   - `repeat(0, 3)` -> `(0, 0, 0)`
   - `repeat((10, 20), 2)` -> `(10, 20, 10, 20)`
 
 Notes:
 
-- Aggregation functions flatten array inputs.
-- `sort`, `reverse`, `unique`, `flat`, `unpack`, `filter`, `sortby` and `repeat` return `()` when the value list is empty. A missing argument is still an error. `filter` and `sortby` still require a valid one-parameter function, and `repeat` still requires a positive integer count.
+- Aggregation functions flatten array inputs. An empty array contributes no values, so `sum((), 1)` -> `1`.
+- When no values remain, the result is `()`. This includes `sum`, `product`/`prod`, `avg`/`mean`, `median`, `variance`, `stddev`, `min`, `max`, `sort`, `reverse`, `unique`, `flat`, `unpack`, `filter`, `sortby`, and `repeat`. A missing argument is still an error. `filter` and `sortby` still require a valid one-parameter function, and `repeat` still requires a positive integer count. `len(())` -> `0`.
 - `variance` and `stddev` use population formulas (`N`, not `N-1`).
 - With complex support enabled (see **Complex Numbers**):
   - `sum`, `product`, `avg`, `reverse`, `repeat`, `unique`, `flat`, `unpack`, and `len`/`length` accept complex scalars and arrays;
