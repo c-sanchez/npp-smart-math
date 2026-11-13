@@ -146,7 +146,8 @@ Notes:
 - `1/2i` means `1/(2i)`, unlike `(1/2)i` and `1/2*i`;
 - `2**7i` means `2**(7i)`, unlike `(2**7)i` and `2**7*i`;
 - `(1+2)i` means `((1+2)i)`;
-- `func(1+2)i` means `(func(1+2)i)`.
+- `func(1+2)i` means `(func(1+2)i)`;
+- `(2,3)i` means `(2i, 3i)`.
 
 ### Arrays
 
@@ -324,19 +325,20 @@ Examples:
 
 ### Precedence (High -> Low)
 
-1. `**` (power)
-2. unary `+`, `-`, `~`, `!`
-3. postfix `%` (percentage form `x%`)
-4. `*`, `/`, `%` (modulo `x % y`)
-5. `+`, `-`
-6. `<<`, `>>` (bitwise shift)
-7. `&` (bitwise and)
-8. `^` (bitwise xor)
-9. `|` (bitwise or)
-10. `=`, `==`, `<>`, `!=`, `>`, `>=`, `<`, `<=`
-11. `not` (logical not)
-12. `&&`, `and` (logical and)
-13. `||`, `or` (logical or)
+1. `[]` (indexing and slicing), then `i` (tight imaginary suffix)
+2. `**` (power)
+3. unary `+`, `-`, `~`, `!`
+4. postfix `%` (percentage form `x%`)
+5. `*`, `/`, `%` (modulo `x % y`)
+6. `+`, `-`
+7. `<<`, `>>` (bitwise shift)
+8. `&` (bitwise and)
+9. `^` (bitwise xor)
+10. `|` (bitwise or)
+11. `=`, `==`, `<>`, `!=`, `>`, `>=`, `<`, `<=`
+12. `not` (logical not)
+13. `&&`, `and` (logical and)
+14. `||`, `or` (logical or)
 
 Use parentheses to make intent explicit.
 
@@ -365,6 +367,9 @@ Recommendation: use `==` for equality checks to avoid confusion.
 - Percentage math and precedence:
   - `5 + 2*3%` means `5 + (2*3%)` -> `5 + 0.06` -> `5.06`.
   - `5 + (2*3)%` means `5 + 6%` -> `5 + (5*0.06)` -> `5.3`.
+  - `2**3%` means `(2**3)%` -> `0.08`.
+  - `2%**3` means `(2%)**3` -> `0.000008`.
+  - `10+2**3%` means `10 + ((2**3)%)` -> `10.8` (the same percent-of-the-left rule as `200+15%`).
 - Tricky examples:
   - `5 % -20` means `(5%) - 20` -> `0.05 - 20` -> `-19.95`.
   - `-20 + 5%` means `-20 + (-20*0.05)` -> `-21`.

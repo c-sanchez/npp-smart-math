@@ -3732,6 +3732,7 @@ declare function ParseAdditive() as EvalValue
 declare function ParseMultiplicative() as EvalValue
 declare function ParseLeftAssocBinary(byval kind as Integer, byval int64LevelId as Integer) as EvalValue
 declare function ParseUnary() as EvalValue
+declare function ParsePostfixPercent() as EvalValue
 declare function ParsePower() as EvalValue
 declare function ParseFactor() as EvalValue
 
@@ -8454,8 +8455,13 @@ private function IsPercentageTail() as Boolean
   wend
 
   dim ch as UByte = p[0]
-  if (ch = CHAR_NUL) orelse (ch = CHAR_RPAREN) orelse (ch = CHAR_PLUS) orelse (ch = CHAR_MINUS) _
-     orelse (ch = CHAR_COMMA) orelse (ch = CHAR_SEMICOLON) orelse (ch = CHAR_RBRACKET) orelse (ch = CHAR_RBRACE) then
+  if (ch = CHAR_NUL) orelse (ch = CHAR_RPAREN) orelse (ch = CHAR_RBRACKET) orelse (ch = CHAR_RBRACE) _
+     orelse (ch = CHAR_COMMA) orelse (ch = CHAR_SEMICOLON) then
+    return TRUE
+  end if
+  if (ch = CHAR_PLUS) orelse (ch = CHAR_MINUS) orelse (ch = CHAR_ASTERISK) orelse (ch = CHAR_DIVIDE) orelse (ch = CHAR_CARET) _
+     orelse (ch = CHAR_LESS_THAN) orelse (ch = CHAR_GREATER_THAN) orelse (ch = CHAR_EQUALS) orelse (ch = CHAR_EXCLAMATION) _
+     orelse (ch = CHAR_AMPERSAND) orelse (ch = CHAR_PIPE) then
     return TRUE
   end if
   return FALSE
@@ -8467,9 +8473,20 @@ private sub TryApplyTightImagSuffixToEvalValue(byref v as EvalValue)
     dim peekIdent as UByte = pStream[1]
     if IsIdentChar(peekIdent) = FALSE then
       pStream += 1
-      dim imagV as EvalValue
-      ValueSetPureImaginaryFromMagnitudeScalar(imagV, v.scalarValue)
-      v = imagV
+      if v.kind = VK_ARRAY then
+        dim imagUnit as EvalValue
+        dim outV as EvalValue
+        ValueSetImagUnit(imagUnit)
+        if ValueApplyBinary(v, imagUnit, CHAR_ASTERISK, outV) = FALSE then
+          SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
+        else
+          v = outV
+        end if
+      else
+        dim imagV as EvalValue
+        ValueSetPureImaginaryFromMagnitudeScalar(imagV, v.scalarValue)
+        v = imagV
+      end if
     end if
   end if
 end sub
@@ -11158,11 +11175,30 @@ private function ParseScalarNumericValue(byref n as EvalValue) as Boolean
   return TRUE
 end function
 
+private function FinishFactor(byref n as EvalValue, byval skipTightImagSuffix as Boolean, byval allowIndex as Boolean) as EvalValue
+  dim indexed as EvalValue
+  if parseError = FALSE andalso allowIndex then
+    while TRUE
+      dim saved as ZString ptr = pStream
+      SkipSpaces()
+      if pStream[0] <> CHAR_LBRACKET then
+        pStream = saved
+        exit while
+      end if
+      if TryParseArrayIndex(n, indexed) = FALSE then return n
+      n = indexed
+    wend
+  end if
+  if parseError = FALSE andalso skipTightImagSuffix = FALSE then TryApplyTightImagSuffixToEvalValue(n)
+  return n
+end function
+
 private function ParseFactor() as EvalValue
   dim n as EvalValue
   ValueSetInt64(n, 0)
   wasPercentage = FALSE
   dim skipTightImagSuffix as Boolean = FALSE
+  dim allowIndex as Boolean = TRUE
 
   SkipSpaces()
   if IsNumericLiteralStartChar(asc(pStream[0])) then
@@ -11192,9 +11228,6 @@ private function ParseFactor() as EvalValue
     if pStream[0] = CHAR_LPAREN then
       n = ParseFunctionCall(nam)
       if parseError then return n
-      dim indexed as EvalValue
-      if TryParseArrayIndex(n, indexed) = FALSE then return n
-      n = indexed
     else
       dim canIndex as Boolean = TRUE
       if TryGetConstant(nam, n) = FALSE then
@@ -11203,11 +11236,7 @@ private function ParseFactor() as EvalValue
         end if
       end if
       TryOverrideBareImagUnitIdent(n, firstIdentB, nam)
-      if canIndex then
-        dim indexed as EvalValue
-        if TryParseArrayIndex(n, indexed) = FALSE then return n
-        n = indexed
-      end if
+      if canIndex = FALSE then allowIndex = FALSE
     end if
   elseif pStream[0] = CHAR_LPAREN then
     pStream += 1
@@ -11218,7 +11247,7 @@ private function ParseFactor() as EvalValue
     if pStream[0] = CHAR_RPAREN then
       if TryConsumeClosingParenOrSetError() = FALSE then return n
       ValueInitArrayLike(n, 0, -1)
-      return n
+      return FinishFactor(n, FALSE, TRUE)
     end if
     dim firstVal as EvalValue = ParseExpression()
     if parseError then return n
@@ -11271,14 +11300,58 @@ private function ParseFactor() as EvalValue
     SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
   end if
 
-  if parseError = FALSE andalso skipTightImagSuffix = FALSE then TryApplyTightImagSuffixToEvalValue(n)
-  return n
+  return FinishFactor(n, skipTightImagSuffix, allowIndex)
+end function
+
+private function TryConsumePostfixPercent(byref n as EvalValue) as Boolean
+  SkipSpaces()
+  if pStream[0] <> CHAR_PERCENT then return FALSE
+  pStream += 1
+  if IsPercentageTail() = FALSE then
+    pStream -= 1
+    return FALSE
+  end if
+  if n.kind <> VK_SCALAR then
+    SetParseErrorById(PARSE_ERR_PERCENTAGE_REQUIRES_SCALAR_VALUE)
+    return TRUE
+  end if
+  dim divV as EvalValue
+  dim outV as EvalValue
+  ValueSetScalar(divV, 100.0)
+  if ValueApplyBinary(n, divV, CHAR_DIVIDE, outV) = FALSE then
+    SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
+    return TRUE
+  end if
+  n = outV
+  wasPercentage = TRUE
+  return TRUE
+end function
+
+private function PercentBeforePower() as Boolean
+  SkipSpaces()
+  if pStream[0] <> CHAR_PERCENT then return FALSE
+  dim saved as ZString ptr = pStream
+  pStream += 1
+  dim ok as Boolean = IsPercentageTail()
+  if ok then
+    dim p as ZString ptr = SkipAsciiSpacesPtr(pStream)
+    ok = (p[0] = CHAR_ASTERISK andalso p[1] = CHAR_ASTERISK)
+  end if
+  pStream = saved
+  return ok
 end function
 
 private function ParsePower() as EvalValue
   dim n as EvalValue = ParseFactor()
   if parseError then return n
   SkipSpaces()
+  ' `%` immediately before `**` is the base: `2%**3` is `(2%)**3`.
+  if PercentBeforePower() then
+    if TryConsumePostfixPercent(n) = FALSE then return n
+    if parseError then return n
+    wasPercentage = FALSE
+    SkipSpaces()
+  end if
 
   if pStream[0] = CHAR_ASTERISK andalso pStream[1] = CHAR_ASTERISK then
     pStream += 2
@@ -11286,6 +11359,7 @@ private function ParsePower() as EvalValue
     rhs = ParseUnary()
     if parseError then return n
     ApplyBinaryParserOpInPlace(n, rhs, CHAR_CARET)
+    wasPercentage = FALSE
   end if
   return n
 end function
@@ -11384,33 +11458,13 @@ private function ParseUnary() as EvalValue
     return v
   end if
 
-  dim n as EvalValue = ParsePower()
+  return ParsePower()
+end function
+
+private function ParsePostfixPercent() as EvalValue
+  dim n as EvalValue = ParseUnary()
   if parseError then return n
-
-  SkipSpaces()
-  while pStream[0] = CHAR_LBRACKET
-    dim indexed as EvalValue
-    if TryParseArrayIndex(n, indexed) = FALSE then return n
-    n = indexed
-    SkipSpaces()
-  wend
-
-  SkipSpaces()
-  if pStream[0] = CHAR_PERCENT then
-    pStream += 1
-    if IsPercentageTail() then
-      dim divV as EvalValue, outV as EvalValue
-      ValueSetScalar(divV, 100.0)
-      if ValueApplyBinary(n, divV, CHAR_DIVIDE, outV) = FALSE then
-        SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
-      else
-        n = outV
-        wasPercentage = TRUE
-      end if
-    else
-      pStream -= 1
-    end if
-  end if
+  TryConsumePostfixPercent(n)
   return n
 end function
 
@@ -11568,7 +11622,7 @@ private function ParseLeftAssocBinary(byval kind as Integer, byval int64LevelId 
     case PLAB_KIND_COMPARISON
       n = ParseBitwiseOr()
     case PLAB_KIND_MULTIPLICATIVE
-      n = ParseUnary()
+      n = ParsePostfixPercent()
       termWasPercentage = wasPercentage
     case else
       ValueSetInt64(n, 0)
@@ -11602,7 +11656,7 @@ private function ParseLeftAssocBinary(byval kind as Integer, byval int64LevelId 
         dim useInt64 as Integer = FALSE
         dim mulIntOp as OperatorBitNameId = OP_BIT_NONE
         if TryConsumeMultiplicativeOp(mulOp, useInt64, mulIntOp) = FALSE then exit while
-        dim n2Mul as EvalValue = ParseUnary()
+        dim n2Mul as EvalValue = ParsePostfixPercent()
         ApplyMultiplicativeOpInPlace(n, n2Mul, useInt64, mulIntOp, mulOp)
         termWasPercentage = FALSE
       case else
