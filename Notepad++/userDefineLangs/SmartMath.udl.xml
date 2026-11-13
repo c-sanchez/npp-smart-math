@@ -43,7 +43,7 @@
             <Keywords name="Folders in comment, open"></Keywords>
             <Keywords name="Folders in comment, middle"></Keywords>
             <Keywords name="Folders in comment, close"></Keywords>
-            <Keywords name="Keywords1">abs acos acosh arccos arcsin arctan asin asinh atan atan2 atanh avg bin cart ceil clamp conj cos cosh days deg exp fact factorial factorint flat floor frac fract gcd hex hours hypot imag int lcm len length ln log log10 max mean median milliseconds min minutes mod ncr npr oct phase polar pow prod product rad rand random range ratio real repeat reverse reversed round seconds sign sin sinh sort sortby sorted sqr sqrt stddev sum tan tanh trunc ubin uhex unique unpack uoct variance</Keywords>
+            <Keywords name="Keywords1">abs acos acosh arccos arcsin arctan asin asinh atan atan2 atanh avg bin cart ceil clamp conj cos cosh days deg exp fact factorial factorint filter flat floor frac fract gcd hex hours hypot imag int lcm len length ln log log10 max mean median milliseconds min minutes mod ncr npr oct phase polar pow prod product rad rand random range ratio real repeat reverse reversed round seconds sign sin sinh sort sortby sorted sqr sqrt stddev sum tan tanh trunc ubin uhex unique unpack uoct variance</Keywords>
             <Keywords name="Keywords2">and not or ans day hour i inf millisecond minute nan second</Keywords>
             <Keywords name="Keywords3"></Keywords>
             <Keywords name="Keywords4"></Keywords>
