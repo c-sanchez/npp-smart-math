@@ -186,6 +186,12 @@ Notes:
   - `sin((pi/4,pi/2))` -> `(0.707107, 1)`
 - Use array utilities:
   - `reverse((1,2,3),(4,5))` -> `(5, 4, 3, 2, 1)`
+- Define functions for arrays:
+  - `check_index(a,n) = filter(n, t: t>=0 && t<len(a))[0]`
+  - `upd(a,n,x) = check_index(a,n)*0 + (a[0:n], x, a[n+1:])`
+  - `upd((10,20,30), 0, 111)` -> `(111, 20, 30)`
+  - `upd((10,20,30), 1, ())` -> `(10, 30)`
+  - `upd((10,20,30), 3, 111)` -> `array index is out of range`
 
 ### Variables and `ans`
 
