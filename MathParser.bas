@@ -7922,8 +7922,13 @@ private function TryMapBinaryPair(byval mode as Integer, byref leftS as ScalarVa
 end function
 
 private function MapBinaryBroadcastPair(byval useTimeOps as Boolean, byval mode as Integer, byref leftS as ScalarValue, byref rightS as ScalarValue, byval op as UByte, byval intOp as OperatorBitNameId, byval fnId as Integer, byref outV as EvalValue) as Boolean
+  '' A mixed array is a duration on some elements only. A pair with no duration uses
+  '' numeric arithmetic. A failed duration pair (duration*duration, plain/duration)
+  '' must not fall through to that numeric path.
   if useTimeOps then
-    return ApplyTimeBinaryScalars(leftS, rightS, op, outV)
+    if ScalarIsTime(leftS) orelse ScalarIsTime(rightS) then
+      return ApplyTimeBinaryScalars(leftS, rightS, op, outV)
+    end if
   end if
   return TryMapBinaryPair(mode, leftS, rightS, op, intOp, fnId, outV)
 end function
