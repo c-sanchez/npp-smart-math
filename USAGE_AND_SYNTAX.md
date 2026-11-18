@@ -158,6 +158,7 @@ Notes:
 - A single value in parentheses without commas is not an array; it’s just grouping:
   - `(5)` behaves like scalar `5`
   - `((5))` also behaves like scalar `5` (still just grouping)
+  - `flat(5)` is an array of one element
 - Use element-wise math:
   - `(1,2,3)*10` -> `(10, 20, 30)`
   - `6/(10,20,30)` -> `(0.6, 0.3, 0.2)`
@@ -180,6 +181,13 @@ Notes:
   - `(1,2,3,4,5,6,7,8,9)[1:1]` -> `()` (empty)
   - Bounds and step must be integers; step must not be `0`
   - Inside `[...]`, `:` is slice syntax (not a time literal): `a[1:30]` slices from index 1 to 30
+- Assign one element by its index:
+  - `a=(1,2,3); a[1]=10` -> `(1, 10, 3)` (the result is the updated array)
+  - `a=(1,2,3); a[1]=()` -> `(1, 3)` (deletes the element)
+  - `a=(1,2,3); a[1]=(10,20,30)` -> `(1, 10, 20, 30, 3)` (replaces element 1 with `10` and inserts the rest)
+  - `5[0]=10` -> error (`indexing requires an array value`)
+  - `a[0:1]=10` -> error (`cannot assign to an array slice`)
+  - `a=(1,2,3); a[1] = 1:30` -> error (`time values cannot be mixed with non-time values`)
 - Pass array to functions:
   - `sqrt((9,25,36))` -> `(3, 5, 6)`
   - `pow((3,2), 4)` -> `(81, 16)`
@@ -250,7 +258,12 @@ Notes:
   - `e(x)=x` -> error (`reserved constant name`)
   - `ans(x)=x` or `_(x)=x` -> error (`reserved built-in variable name`) - these names are reserved for the last-result variable `ans` and the formal-validation probe variable `_` (see below)
   - `nan=1` -> error (`reserved constant name`)
-- Recursive functions are not supported.
+- Recursive functions are not supported:
+  - `f(x) = x*f(x-1)` -> error (`recursive function call`)
+- Inside a function or lambda body, `=` is a comparison and does not assign:
+  - `v=(1,2,3); f(a)=a[0]=9; f(v)` -> `0`, and `v` stays `(1, 2, 3)`
+  - `b=0; f()=b=1; f()` -> `0`, and `b` stays `0`
+  - `filter((1,2,3), t: t=1)` -> `(1)`.
 
 #### Late Binding of Referenced Functions
 
@@ -363,6 +376,10 @@ Examples:
 - `5=5` -> comparison (`1`)
 - `(x)=(x)` -> comparison
 - `x+y=x` -> comparison
+- `a=(1,2,3); a[1]=10` -> element assignment, result `(1, 10, 3)`
+- `(1,2,3)[1]=10` -> comparison, result `0`
+- `a[1]==10` -> comparison
+- `b=a[1]=2` -> the same as `b=(a[1]==2)`
 
 Recommendation: use `==` for equality checks to avoid confusion.
 
@@ -698,7 +715,7 @@ Purpose: aggregate and transform values/lists.
   - `filter(range(1,11), x: x%3==0)` -> `(3, 6, 9)`
   - `filter((1,0,inf,-10,nan), x: !!x)` -> `(1, inf, -10)` (`0` and `nan` are falsy)
   - `unique(3,1,3,2,1,2)` -> `(3, 1, 2)`
-  - `flat(0)` -> `(0)` (an array)
+  - `flat(5)` -> `(5)` (an array of one element)
   - `a=(1,2); b=(4,5); flat(a,3,b,6)` -> `(1, 2, 3, 4, 5, 6)`
   - `a=(5,2); pow(unpack(a))` -> `25`
   - `len(1,2,3)` -> `3`
@@ -886,6 +903,10 @@ These behaviors may differ from other tools/languages.
 - `array index is out of range`
   - Example: `(10,20)[5]`
   - Fix: use a valid index (`0..len-1` or negative within bounds).
+
+- `cannot assign to an array slice`
+  - Example: `a=(1,2,3); a[0:1]=10`
+  - Fix: assign one index, as in `a[0]=10`, or build a new array.
 
 - `slice step must not be zero`
   - Example: `(1,2,3)[::0]`

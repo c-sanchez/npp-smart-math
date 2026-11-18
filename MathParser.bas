@@ -152,6 +152,7 @@ const FB_STR_MISMATCHED_CLOSING_PARENTHESIS as string = "mismatched closing pare
 const FB_STR_MISMATCHED_CLOSING_BRACE as string = "mismatched closing brace"
 const FB_STR_MISSING_CLOSING_BRACKET as string = "missing closing bracket"
 const FB_STR_ARRAY_INDEX_IS_OUT_OF_RANGE as string = "array index is out of range"
+const FB_STR_CANNOT_ASSIGN_TO_AN_ARRAY_SLICE as string = "cannot assign to an array slice"
 const FB_STR_SLICE_STEP_MUST_NOT_BE_ZERO as string = "slice step must not be zero"
 const FB_STR_PAR_EXPECTS as string = "() expects "
 const FB_STR_ARGUMENT_PAR_S_COMMA as string = " argument(s), "
@@ -536,6 +537,7 @@ enum ParseErrorId
   PARSE_ERR_PARSE_FAILED
   PARSE_ERR_UNEXPECTED_TOKEN
   PARSE_ERR_UNEXPECTED_INPUT
+  PARSE_ERR_CANNOT_ASSIGN_TO_AN_ARRAY_SLICE
   PARSE_ERR_COUNT
 end enum
 
@@ -1207,6 +1209,7 @@ private function ParseErrorTextById(byval id as ParseErrorId) as String
     case PARSE_ERR_PARSE_FAILED: return FB_STR_PARSE_FAILED
     case PARSE_ERR_UNEXPECTED_TOKEN: return FB_STR_UNEXPECTED_TOKEN
     case PARSE_ERR_UNEXPECTED_INPUT: return FB_STR_UNEXPECTED_INPUT
+    case PARSE_ERR_CANNOT_ASSIGN_TO_AN_ARRAY_SLICE: return FB_STR_CANNOT_ASSIGN_TO_AN_ARRAY_SLICE
     case else: return ""
   end select
 end function
@@ -3795,6 +3798,15 @@ private function SkipAsciiSpacesPtr(byval p as ZString ptr) as ZString ptr
   return p
 end function
 
+'' Space, tab, CR, and LF: the same set SkipSpaces uses. Statement recognizers must
+'' use this so a line break still sees ``=`` or ``(``.
+private function SkipParserSpacesPtr(byval p as ZString ptr) as ZString ptr
+  while p[0] = CHAR_SPACE orelse p[0] = CHAR_TAB orelse p[0] = CHAR_LF orelse p[0] = CHAR_CR
+    p += 1
+  wend
+  return p
+end function
+
 private function EndOfIdentTokenPtr(byval p as ZString ptr) as ZString ptr
   if IsIdentStartChar(asc(p[0])) = FALSE then return p
   p += 1
@@ -3805,13 +3817,35 @@ private function EndOfIdentTokenPtr(byval p as ZString ptr) as ZString ptr
 end function
 
 private function PeekIdentFollowedByChar(byval p as ZString ptr, byval ch as UByte) as Boolean
-  p = SkipAsciiSpacesPtr(EndOfIdentTokenPtr(p))
+  p = SkipParserSpacesPtr(EndOfIdentTokenPtr(p))
   return (p[0] = ch)
 end function
 
 private function PeekIdentFollowedByAssignEquals(byval p as ZString ptr) as Boolean
-  p = SkipAsciiSpacesPtr(EndOfIdentTokenPtr(p))
+  p = SkipParserSpacesPtr(EndOfIdentTokenPtr(p))
   return (p[0] = CHAR_EQUALS) andalso (p[1] <> CHAR_EQUALS)
+end function
+
+'' ``name [ ... ] =`` at the start of a statement. The matching ``]`` is the one that
+'' closes the opening bracket; a following ``==`` stays a comparison.
+private function PeekIdentFollowedByIndexThenAssignEquals(byval p as ZString ptr) as Boolean
+  p = SkipParserSpacesPtr(EndOfIdentTokenPtr(p))
+  if p[0] <> CHAR_LBRACKET then return FALSE
+  dim depth as Integer = 0
+  while p[0] <> CHAR_NUL
+    if p[0] = CHAR_LBRACKET then
+      depth += 1
+    elseif p[0] = CHAR_RBRACKET then
+      depth -= 1
+      if depth = 0 then
+        p += 1
+        p = SkipParserSpacesPtr(p)
+        return (p[0] = CHAR_EQUALS) andalso (p[1] <> CHAR_EQUALS)
+      end if
+    end if
+    p += 1
+  wend
+  return FALSE
 end function
 
 private function PeekUnwrappedLambdaParamsThenColon(byval p as ZString ptr) as Boolean
@@ -4597,7 +4631,7 @@ private function TryGetArrayIndexIntFromEvalValue(byref idxValue as EvalValue, b
     return TRUE
   case SSK_UINT64
     if sv.exactUInt64 > FB_I64_MAX_U then
-      if setError then SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_INTEGER)
+      if setError then SetParseErrorById(PARSE_ERR_ARRAY_INDEX_OUT_OF_RANGE)
       return FALSE
     end if
     outIdx = CLngInt(sv.exactUInt64)
@@ -4655,13 +4689,36 @@ private sub NormalizePythonSliceBounds( _
   outStop = stopIdx
 end sub
 
+'' stepV is not zero. Start and stop are already normalized into a range that fits in signed 64-bit.
 private function EstimateSliceItemCount(byval startV as LongInt, byval stopV as LongInt, byval stepV as LongInt) as LongInt
   if stepV > 0 then
     if startV >= stopV then return 0
-    return (stopV - startV + stepV - 1) \ stepV
+    dim dist as LongInt = stopV - startV
+    return (dist - 1) \ stepV + 1
   end if
   if startV <= stopV then return 0
-  return (startV - stopV - stepV - 1) \ (-stepV)
+  dim dist as LongInt = startV - stopV
+  dim mag as ULongInt = UInt64MagnitudeOfInt64(stepV)
+  return CLngInt((CULngInt(dist - 1) \ mag) + 1ull)
+end function
+
+'' Negative indexes wrap. An index that does not land in [0, length) sets the out-of-range error.
+'' length + idx runs only when the sum is inside that range, so it cannot overflow.
+private function TryResolveArrayIndex(byval arrLen as LongInt, byval idxInt as LongInt, byref resolved as LongInt) as Boolean
+  if idxInt >= 0 then
+    if idxInt >= arrLen then
+      SetParseErrorById(PARSE_ERR_ARRAY_INDEX_OUT_OF_RANGE)
+      return FALSE
+    end if
+    resolved = idxInt
+    return TRUE
+  end if
+  if arrLen > 0 andalso idxInt >= -arrLen then
+    resolved = arrLen + idxInt
+    return TRUE
+  end if
+  SetParseErrorById(PARSE_ERR_ARRAY_INDEX_OUT_OF_RANGE)
+  return FALSE
 end function
 
 private function TryApplyArrayIndex(byref baseValue as EvalValue, byref idxValue as EvalValue, byref outValue as EvalValue) as Boolean
@@ -4689,12 +4746,8 @@ private function TryApplyArrayIndex(byref baseValue as EvalValue, byref idxValue
   end if
 
   dim arrLen as Integer = ValueArrayLen(baseValue)
-  dim resolved as LongInt = idxInt
-  if resolved < 0 then resolved = CLngInt(arrLen) + resolved
-  if resolved < 0 orelse resolved >= arrLen then
-    SetParseErrorById(PARSE_ERR_ARRAY_INDEX_OUT_OF_RANGE)
-    return FALSE
-  end if
+  dim resolved as LongInt
+  if TryResolveArrayIndex(CLngInt(arrLen), idxInt, resolved) = FALSE then return FALSE
 
   dim rawIdx as Integer = lbound(baseValue.arr) + CInt(resolved)
   ValueGetArrayElemAsScalar(baseValue, rawIdx, outValue)
@@ -4706,7 +4759,8 @@ private function TryApplyArraySlice( _
   byval hasStart as Boolean, byref startValue as EvalValue, _
   byval hasStop as Boolean, byref stopValue as EvalValue, _
   byval hasStep as Boolean, byref stepValue as EvalValue, _
-  byref outValue as EvalValue _
+  byref outValue as EvalValue, _
+  byval materialize as Boolean _
 ) as Boolean
   if EvalValueHasFormalProbeTaint(baseValue) then
     if hasStart then
@@ -4743,12 +4797,14 @@ private function TryApplyArraySlice( _
         end if
       end if
     end if
-    '' UDF body validation: 1-element probe array so chained indexing still parses.
+    '' Unknown length: keep the taint so a later index is not checked against this stand-in.
+    if materialize = FALSE then return TRUE
     dim probe as EvalValue
     LoadCleanFormalProbe(probe)
     dim probeVals(0 to 0) as ScalarValue
     probeVals(0) = ScalarValueFromEvalScalar(probe)
     ValueSetArrayFromScalarValues(outValue, probeVals())
+    EvalValueSetFormalProbeTaint(outValue, TRUE)
     return TRUE
   end if
 
@@ -4773,6 +4829,8 @@ private function TryApplyArraySlice( _
     SetParseErrorById(PARSE_ERR_INDEXING_REQUIRES_ARRAY)
     return FALSE
   end if
+  '' Slice assignment only needs the bound checks above. Skip the element copy.
+  if materialize = FALSE then return TRUE
 
   dim arrLen as LongInt = CLngInt(ValueArrayLen(baseValue))
   dim normStart as LongInt
@@ -4784,16 +4842,14 @@ private function TryApplyArraySlice( _
     return TRUE
   end if
 
-  dim vals() as ScalarValue
-  redim vals(0 to CInt(outCount) - 1)
+  ValueInitArrayLike(outValue, 0, CInt(outCount) - 1)
   dim i as Integer
   dim curIdx as LongInt = normStart
   dim lb as Integer = lbound(baseValue.arr)
   for i = 0 to CInt(outCount) - 1
-    vals(i) = baseValue.arr(lb + CInt(curIdx))
-    curIdx += stepIdx
+    outValue.arr(i) = baseValue.arr(lb + CInt(curIdx))
+    if i + 1 < CInt(outCount) then curIdx += stepIdx
   next i
-  ValueSetArrayFromScalarValues(outValue, vals())
   return TRUE
 end function
 
@@ -4819,26 +4875,26 @@ private function TryParseSliceStepAfterColon(byref hasStep as Boolean, byref ste
   return TRUE
 end function
 
-private function TryParseArrayIndex(byref baseValue as EvalValue, byref outValue as EvalValue) as Boolean
-  outValue = baseValue
-  SkipSpaces()
-  if pStream[0] <> CHAR_LBRACKET then return TRUE
-
-  pStream += 1
-  arrayIndexBracketDepth += 1
+'' Caller has consumed ``[`` and incremented arrayIndexBracketDepth.
+'' On success the closing ``]`` is consumed and the depth is decremented.
+'' A single index sets isSlice FALSE and indexValue. A slice sets isSlice TRUE and the bounds.
+private function TryParseOpenedBracket( _
+  byref isSlice as Boolean, _
+  byref indexValue as EvalValue, _
+  byref hasStart as Boolean, byref startValue as EvalValue, _
+  byref hasStop as Boolean, byref stopValue as EvalValue, _
+  byref hasStep as Boolean, byref stepValue as EvalValue _
+) as Boolean
+  isSlice = FALSE
+  hasStart = FALSE
+  hasStop = FALSE
+  hasStep = FALSE
   SkipSpaces()
   if pStream[0] = CHAR_RBRACKET then
     arrayIndexBracketDepth -= 1
     SetParseErrorById(PARSE_ERR_MISSING_INDEX)
     return FALSE
   end if
-
-  dim hasStart as Boolean = FALSE
-  dim hasStop as Boolean = FALSE
-  dim hasStep as Boolean = FALSE
-  dim startValue as EvalValue
-  dim stopValue as EvalValue
-  dim stepValue as EvalValue
 
   if pStream[0] = CHAR_COLON then
     hasStart = FALSE
@@ -4856,7 +4912,9 @@ private function TryParseArrayIndex(byref baseValue as EvalValue, byref outValue
     elseif pStream[0] = CHAR_RBRACKET then
       pStream += 1
       arrayIndexBracketDepth -= 1
-      return TryApplyArrayIndex(baseValue, startValue, outValue)
+      isSlice = FALSE
+      indexValue = startValue
+      return TRUE
     else
       arrayIndexBracketDepth -= 1
       SetMissingClosingBracketAfterIndexError()
@@ -4895,7 +4953,32 @@ private function TryParseArrayIndex(byref baseValue as EvalValue, byref outValue
 
   pStream += 1
   arrayIndexBracketDepth -= 1
-  return TryApplyArraySlice(baseValue, hasStart, startValue, hasStop, stopValue, hasStep, stepValue, outValue)
+  isSlice = TRUE
+  return TRUE
+end function
+
+private function TryParseArrayIndex(byref baseValue as EvalValue, byref outValue as EvalValue) as Boolean
+  outValue = baseValue
+  SkipSpaces()
+  if pStream[0] <> CHAR_LBRACKET then return TRUE
+
+  pStream += 1
+  arrayIndexBracketDepth += 1
+  dim isSlice as Boolean = FALSE
+  dim indexValue as EvalValue
+  dim hasStart as Boolean = FALSE
+  dim hasStop as Boolean = FALSE
+  dim hasStep as Boolean = FALSE
+  dim startValue as EvalValue
+  dim stopValue as EvalValue
+  dim stepValue as EvalValue
+  if TryParseOpenedBracket(isSlice, indexValue, hasStart, startValue, hasStop, stopValue, hasStep, stepValue) = FALSE then
+    return FALSE
+  end if
+  if isSlice = FALSE then
+    return TryApplyArrayIndex(baseValue, indexValue, outValue)
+  end if
+  return TryApplyArraySlice(baseValue, hasStart, startValue, hasStop, stopValue, hasStep, stepValue, outValue, TRUE)
 end function
 
 '' Save shadowed parameters, parse bodyText, then restore variables and the parser stream.
@@ -12390,6 +12473,188 @@ private function FinishParserEvaluateEx(byval ok as Boolean) as Boolean
   return ok
 end function
 
+'' Brackets of a top-level ``name[index] =`` statement. A single index returns TRUE and
+'' leaves that index expression in ``indexValue``. A slice that passes the same bound
+'' checks as a read becomes ``cannot assign to an array slice``.
+private function TryParseAssignBracket(byref baseValue as EvalValue, byref indexValue as EvalValue) as Boolean
+  SkipSpaces()
+  if pStream[0] <> CHAR_LBRACKET then
+    SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
+    return FALSE
+  end if
+  pStream += 1
+  arrayIndexBracketDepth += 1
+  dim isSlice as Boolean = FALSE
+  dim hasStart as Boolean = FALSE
+  dim hasStop as Boolean = FALSE
+  dim hasStep as Boolean = FALSE
+  dim startValue as EvalValue
+  dim stopValue as EvalValue
+  dim stepValue as EvalValue
+  if TryParseOpenedBracket(isSlice, indexValue, hasStart, startValue, hasStop, stopValue, hasStep, stepValue) = FALSE then
+    return FALSE
+  end if
+  if isSlice = FALSE then return TRUE
+  '' Same bound checks as a read, without copying the slice that will be rejected.
+  dim ignored as EvalValue
+  if TryApplyArraySlice(baseValue, hasStart, startValue, hasStop, stopValue, hasStep, stepValue, ignored, FALSE) = FALSE then
+    return FALSE
+  end if
+  ApplyUnknownNameErrors()
+  if parseError then return FALSE
+  SetParseErrorById(PARSE_ERR_CANNOT_ASSIGN_TO_AN_ARRAY_SLICE)
+  return FALSE
+end function
+
+private function ElementAssignRejectsTimeMix(byref baseV as EvalValue, byref rhs as EvalValue) as Boolean
+  if rhs.kind = VK_ARRAY andalso ValueArrayLen(rhs) <= 0 then return FALSE
+  dim baseAllTime as Boolean = TRUE
+  dim baseAllNonTime as Boolean = TRUE
+  if ValueArrayLen(baseV) <= 0 then
+    baseAllTime = FALSE
+    baseAllNonTime = FALSE
+  else
+    dim i as Integer
+    for i = lbound(baseV.arr) to ubound(baseV.arr)
+      if ScalarIsTime(baseV.arr(i)) then
+        baseAllNonTime = FALSE
+      else
+        baseAllTime = FALSE
+      end if
+    next i
+  end if
+  if rhs.kind = VK_SCALAR then
+    dim rhsTime as Boolean = ScalarIsTime(rhs.scalarValue)
+    if (baseAllTime andalso rhsTime = FALSE) orelse (baseAllNonTime andalso rhsTime) then
+      SetParseError(FB_STR_TIME_ARRAY_MIXED)
+      return TRUE
+    end if
+    return FALSE
+  end if
+  if rhs.kind = VK_ARRAY then
+    dim j as Integer
+    for j = lbound(rhs.arr) to ubound(rhs.arr)
+      dim elemTime as Boolean = ScalarIsTime(rhs.arr(j))
+      if (baseAllTime andalso elemTime = FALSE) orelse (baseAllNonTime andalso elemTime) then
+        SetParseError(FB_STR_TIME_ARRAY_MIXED)
+        return TRUE
+      end if
+    next j
+    return FALSE
+  end if
+  SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
+  return TRUE
+end function
+
+private sub BuildElementAssignedArray(byref baseV as EvalValue, byval resolved as LongInt, byref rhs as EvalValue, byref outV as EvalValue)
+  dim oldLen as Integer = ValueArrayLen(baseV)
+  dim lb as Integer = lbound(baseV.arr)
+  dim rhsCount as Integer
+  if rhs.kind = VK_ARRAY then
+    rhsCount = ValueArrayLen(rhs)
+  else
+    rhsCount = 1
+  end if
+  dim newLen as Integer = oldLen - 1 + rhsCount
+  if newLen <= 0 then
+    ValueInitArrayLike(outV, 0, -1)
+    exit sub
+  end if
+  dim vals() as ScalarValue
+  redim vals(0 to newLen - 1)
+  dim dst as Integer = 0
+  dim i as Integer
+  for i = 0 to CInt(resolved) - 1
+    vals(dst) = baseV.arr(lb + i)
+    dst += 1
+  next i
+  if rhs.kind = VK_SCALAR then
+    vals(dst) = ScalarValueFromEvalScalar(rhs)
+    dst += 1
+  elseif rhsCount > 0 then
+    dim rlb as Integer = lbound(rhs.arr)
+    for i = 0 to rhsCount - 1
+      vals(dst) = rhs.arr(rlb + i)
+      dst += 1
+    next i
+  end if
+  for i = CInt(resolved) + 1 to oldLen - 1
+    vals(dst) = baseV.arr(lb + i)
+    dst += 1
+  next i
+  ValueSetArrayFromScalarValues(outV, vals())
+end sub
+
+private function TryEvaluateElementAssignStatement(byref result as Double, byref resultText as String, byref isArray as Boolean) as Boolean
+  dim varName as String = ConsumeIdentTokenFromStream()
+  dim assignNameErr as String
+  if TryValidateAssignmentTargetName(varName, assignNameErr) = FALSE then
+    SetValidationError(assignNameErr)
+    return FALSE
+  end if
+  dim baseV as EvalValue
+  if GetVariable(varName, baseV) = FALSE then
+    AppendUniqueName(unknownVarsText, varName)
+    ApplyUnknownNameErrors()
+    return FALSE
+  end if
+  if baseV.kind <> VK_ARRAY then
+    SetParseErrorById(PARSE_ERR_INDEXING_REQUIRES_ARRAY)
+    return FALSE
+  end if
+  dim indexValue as EvalValue
+  if TryParseAssignBracket(baseV, indexValue) = FALSE then return FALSE
+  ApplyUnknownNameErrors()
+  if parseError then return FALSE
+  dim idxInt as LongInt
+  if TryGetArrayIndexIntFromEvalValue(indexValue, idxInt) = FALSE then return FALSE
+  dim arrLen as Integer = ValueArrayLen(baseV)
+  dim resolved as LongInt
+  if TryResolveArrayIndex(CLngInt(arrLen), idxInt, resolved) = FALSE then return FALSE
+  SkipSpaces()
+  if pStream[0] <> CHAR_EQUALS orelse pStream[1] = CHAR_EQUALS then
+    SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
+    return FALSE
+  end if
+  pStream += 1
+  dim rhs as EvalValue
+  rhs = ParseExpression()
+  if parseError then return FALSE
+  SkipSpaces()
+  ApplyUnknownNameErrors()
+  if parseError then return FALSE
+  if pStream[0] = CHAR_SEMICOLON then
+    pStream += 1
+    SkipSpaces()
+  end if
+  if pStream[0] <> CHAR_NUL then
+    SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
+    return FALSE
+  end if
+  if ElementAssignRejectsTimeMix(baseV, rhs) then return FALSE
+  dim newV as EvalValue
+  dim vIdx as Integer = FindVariableIndex(varName)
+  dim writeSlot as Boolean = (vIdx >= 0)
+#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
+  '' A formal-parameter override is not the stored array. Keep the copy-and-assign path.
+  if functionVariableCount > 0 then writeSlot = FALSE
+#endif
+  if writeSlot andalso rhs.kind = VK_SCALAR andalso variables(vIdx).value.kind = VK_ARRAY andalso ValueArrayLen(variables(vIdx).value) = arrLen then
+    dim slotLb as Integer = lbound(variables(vIdx).value.arr)
+    variables(vIdx).value.arr(slotLb + CInt(resolved)) = ScalarValueFromEvalScalar(rhs)
+    newV = variables(vIdx).value
+  else
+    BuildElementAssignedArray(baseV, resolved, rhs, newV)
+    SetVariable(varName, newV)
+  end if
+  SetAnsValue(newV)
+  resultText = ValueToString(newV)
+  isArray = TRUE
+  result = 0
+  CommitLastRawResult(newV)
+  return TRUE
+end function
+
 private function TryEvaluateStatementCore(byref exprInput as String, byref result as Double, byref resultText as String, byref isArray as Boolean, byval suppressTailHint as Boolean) as Boolean
   dim savedSuppressTailHint as Boolean = suppressBareFunctionTailHint
   suppressBareFunctionTailHint = suppressTailHint
@@ -12480,6 +12745,15 @@ private function TryEvaluateStatementCore(byref exprInput as String, byref resul
         return FALSE
       end if
       pStream = stmtStart
+    end if
+    if PeekIdentFollowedByIndexThenAssignEquals(stmtStart) then
+      pStream = stmtStart
+      if TryEvaluateElementAssignStatement(result, resultText, isArray) = FALSE then
+        suppressBareFunctionTailHint = savedSuppressTailHint
+        return FALSE
+      end if
+      suppressBareFunctionTailHint = savedSuppressTailHint
+      return TRUE
     end if
     if PeekIdentFollowedByChar(stmtStart, CHAR_LPAREN) then
       dim varName as String = ConsumeIdentTokenFromStream()
