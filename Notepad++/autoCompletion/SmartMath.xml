@@ -188,6 +188,13 @@
 			</Overload>
 		</KeyWord>
 		<KeyWord name="i" />
+		<KeyWord name="iif" func="yes">
+			<Overload retVal="" >
+				<Param name="cond" />
+				<Param name="expr_true" />
+				<Param name="expr_false" />
+			</Overload>
+		</KeyWord>
 		<KeyWord name="imag" func="yes">
 			<Overload retVal="" >
 				<Param name="c" />
@@ -197,6 +204,12 @@
 		<KeyWord name="int" func="yes">
 			<Overload retVal="" >
 				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="isinstance" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+				<Param name="type" />
 			</Overload>
 		</KeyWord>
 		<KeyWord name="lcm" func="yes">

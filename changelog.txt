@@ -4,7 +4,8 @@ SmartMath 1.3
 - corrected: floating-point vs. exact-integer results
 * changed: an empty array result is shown as `()`
 * changed: `a[n] = x` is an assignment (it updates the array `a`)
-+ new function: filter
+* changed: user-defined functions and lambdas are evaluated only when called
++ new functions: filter, iif, isinstance
 * preserve the selected SmartMath syntax, either dark or not
 
 

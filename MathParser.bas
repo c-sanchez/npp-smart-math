@@ -78,6 +78,17 @@ const FB_STR_SORT as string = "sort"
 const FB_STR_SORTED as string = "sorted"
 const FB_STR_SORTBY as string = "sortby"
 const FB_STR_FILTER as string = "filter"
+const FB_STR_IIF as string = "iif"
+const FB_STR_PAR_CONDITION_COMMA_TRUE_COMMA_FALSE as string = "(condition, expr_if_true, expr_if_false)"
+const FB_STR_ISINSTANCE as string = "isinstance"
+const FB_STR_PAR_VALUE_COMMA_TYPE as string = "(value, type)"
+const FB_STR_FLOAT as string = "float"
+const FB_STR_TIME as string = "time"
+const FB_STR_COMPLEX as string = "complex"
+const FB_STR_ARRAY as string = "array"
+const FB_STR_LIST as string = "list"
+const FB_STR_UNKNOWN_TYPE_NAME_COLON as string = "unknown type name: "
+const FB_STR_PAR_EXPECTS_A_TYPE_NAME as string = "() expects a type name"
 const FB_STR_RATIO as string = "ratio"
 const FB_STR_RANGE as string = "range"
 const FB_STR_REVERSE as string = "reverse"
@@ -143,7 +154,6 @@ const FB_STR_PREFIX_HEX as string = "0x"
 const FB_STR_PREFIX_OCT as string = "0o"
 const FB_STR_PREFIX_BIN as string = "0b"
 const FB_STR_ANS as string = "ans"
-const FB_STR_FORMAL_VALIDATION_PROBE as string = "_"
 const FB_STR_INDEXING_REQUIRES_AN_ARRAY_VALUE as string = "indexing requires an array value"
 const FB_STR_MISSING_INDEX as string = "missing index"
 const FB_STR_ARRAY_INDEX_MUST_BE_A_SCALAR as string = "array index must be a scalar integer"
@@ -390,7 +400,6 @@ enum EvalFlags
   EVF_EXPAND_ARGS = &h01
   EVF_RENDER_UNSIGNED = &h02
   EVF_RENDER_RATIONAL = &h04
-  EVF_FORMAL_PROBE = &h08
   EVF_RENDER_BASE_SHIFT = 8
   EVF_RENDER_BASE_MASK = &h0000FF00
 end enum
@@ -474,6 +483,8 @@ enum BuiltinFunctionId
   FUNC_CART
   FUNC_CONJ
   FUNC_FILTER
+  FUNC_IIF
+  FUNC_ISINSTANCE
   FUNC__COUNT
 end enum
 
@@ -567,6 +578,8 @@ enum BuiltinCategory
   BC_POLAR_CART
   BC_LOG
   BC_FILTER
+  BC_IIF
+  BC_ISINSTANCE
   BC_UNKNOWN
 end enum
 
@@ -590,6 +603,8 @@ enum BuiltinHintKind
   BHK_X
   BHK_START_STOP_STEP
   BHK_ARRAY_FUNC
+  BHK_IIF
+  BHK_ISINSTANCE
 end enum
 
 type ScalarValue
@@ -805,16 +820,9 @@ end type
 
 #define __FB_FUNC_VARS_OVERRIDE_GLOBALS__ 1
 '
-'  With a fixed formal probe of 0, `f(x)=1%x` fails validation (mod 0).
-'  With 1, `f(x)=1%(x-1)` can fail (again, mode 0).
-'  When this define is enabled, each formal parameter is given the value
-'  of scalar variable `_` during UDF body validation if `_` exists,
-'  otherwise the default probe 1.
-'  Example: `_=10; f(x)=1%(x-1)` passes the validation.
-'  Runtime calls still use real arguments.
-'
-'  Without this define, `x=1; f(x)=1%x` and `x=2; f(x)=1%(x-1)` work by
-'  seeding x during validation when a global variable shares a formal name.
+'  While a function body is syntax-checked, each formal name resolves to a
+'  dummy scalar so it is not an unknown variable. The dummy is not evaluated.
+'  Runtime calls still use the arguments you pass.
 '  A name is either a user function or a variable: defining f(...) removes variable f;
 '  assigning to x removes user function x (see SetUserFunction / assignment path).
 
@@ -822,6 +830,8 @@ dim shared variables() as VarEntry
 dim shared userFunctions() as FuncEntry
 dim shared pStream as ZString ptr
 dim shared parseError as Integer
+dim shared syntaxCheckDepth as Integer
+dim shared iifDeferCallArity as Integer
 dim shared arrayIndexBracketDepth as Integer = 0
 dim shared wasPercentage as Boolean
 dim shared lastErrorText as String
@@ -1130,19 +1140,23 @@ private function UnaryFunctionFailureMessage(byref innerMsg as String) as String
   return innerMsg
 end function
 
+private function UnaryBodyErrorColumn(byval bodyStartCol as Integer, byval bodyErrorCol as Integer, byref msg as String) as Integer
+  if bodyStartCol <= 0 orelse bodyErrorCol <= 0 then return 0
+  dim col as Integer = bodyStartCol + bodyErrorCol - 1
+  if instr(msg, FB_STR_UNKNOWN_VARIABLE_COLON) > 0 then
+    dim uvName as String = trim(mid(msg, instr(msg, FB_STR_UNKNOWN_VARIABLE_COLON) + len(FB_STR_UNKNOWN_VARIABLE_COLON)))
+    if len(uvName) > 0 then
+      dim identCol as Integer = instr(bodyStartCol, rootInputExpr, uvName)
+      if identCol > 0 then col = identCol
+    end if
+  end if
+  return col
+end function
+
 private sub RemapParseErrorToUnaryFuncColumn(byref keyArg as EvalValue)
   dim msg as String = UnaryFunctionFailureMessage(StripErrorLocationSuffix(lastErrorText))
-  dim col as Integer = 0
-  if unaryLambdaEvalBodyErrorCol > 0 andalso keyArg.unaryFuncBodyErrorCol > 0 then
-    col = keyArg.unaryFuncBodyErrorCol + unaryLambdaEvalBodyErrorCol - 1
-    if instr(msg, FB_STR_UNKNOWN_VARIABLE_COLON) > 0 then
-      dim uvName as String = trim(mid(msg, instr(msg, FB_STR_UNKNOWN_VARIABLE_COLON) + len(FB_STR_UNKNOWN_VARIABLE_COLON)))
-      if len(uvName) > 0 then
-        dim identCol as Integer = instr(keyArg.unaryFuncBodyErrorCol, rootInputExpr, uvName)
-        if identCol > 0 then col = identCol
-      end if
-    end if
-  elseif keyArg.unaryFuncErrorCol > 0 then
+  dim col as Integer = UnaryBodyErrorColumn(keyArg.unaryFuncBodyErrorCol, unaryLambdaEvalBodyErrorCol, msg)
+  if col <= 0 andalso keyArg.unaryFuncErrorCol > 0 then
     col = keyArg.unaryFuncErrorCol
   end if
   unaryLambdaEvalBodyErrorCol = 0
@@ -1296,7 +1310,7 @@ dim shared as BuiltinMetaRow K_BUILTIN_META_ROWS(0 to FUNC__COUNT - 1) = { _
   (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Reverse
   (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Unique
   (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Unpack
-  (BUILTIN_FLAG_NON_CALCULATING, 1, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Flat
+  (BUILTIN_FLAG_NON_CALCULATING, 0, BUILTIN_META_ARITY_UNBOUNDED, BHK_DOTDOTDOT, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Flat
   (BUILTIN_FLAG_NON_CALCULATING, 2, 2, BHK_X_N, USK_NONE, BC_REPEAT), _ ' Repeat
   (BUILTIN_FLAG_NON_CALCULATING, 0, BUILTIN_META_ARITY_UNBOUNDED, BHK_X, USK_NONE, BC_ARRAY_TRANSFORM), _ ' Len
   (BUILTIN_FLAG_UNARY or BUILTIN_FLAG_INTEGER_ONLY, 1, 1, BHK_N, USK_NONE, BC_FACTORIAL), _ ' Fact
@@ -1327,7 +1341,9 @@ dim shared as BuiltinMetaRow K_BUILTIN_META_ROWS(0 to FUNC__COUNT - 1) = { _
   (BUILTIN_FLAG_UNARY, 1, 1, BHK_VALUE, USK_NONE, BC_POLAR_CART), _ ' Polar
   (0u, 1, 2, BHK_VALUE, USK_NONE, BC_POLAR_CART), _ ' Cart
   (BUILTIN_FLAG_UNARY, 1, 1, BHK_VALUE, USK_NONE, BC_UNARY_MATH), _ ' Conj
-  (BUILTIN_FLAG_NON_CALCULATING, 2, 2, BHK_ARRAY_FUNC, USK_NONE, BC_FILTER) _ ' Filter
+  (BUILTIN_FLAG_NON_CALCULATING, 2, 2, BHK_ARRAY_FUNC, USK_NONE, BC_FILTER), _ ' Filter
+  (0u, 3, 3, BHK_IIF, USK_NONE, BC_IIF), _ ' Iif
+  (0u, 2, 2, BHK_ISINSTANCE, USK_NONE, BC_ISINSTANCE) _ ' IsInstance
 }
 
 enum OperatorNameId
@@ -1469,6 +1485,8 @@ private sub EnsureFunctionNames()
   FunctionNames(FUNC_CART) = FB_STR_CART
   FunctionNames(FUNC_CONJ) = FB_STR_CONJ
   FunctionNames(FUNC_FILTER) = FB_STR_FILTER
+  FunctionNames(FUNC_IIF) = FB_STR_IIF
+  FunctionNames(FUNC_ISINSTANCE) = FB_STR_ISINSTANCE
   FunctionNamesInitialized = TRUE
 end sub
 
@@ -1681,6 +1699,8 @@ private function TryGetBuiltinSignatureHint(byref fn as String, byref hint as St
     case BHK_X: hint = displayFn & FB_STR_PAR_X
     case BHK_START_STOP_STEP: hint = GetFunctionName(id) & FB_STR_PAR_START_COMMA_STOP_COMMA_STEP
     case BHK_ARRAY_FUNC: hint = displayFn & FB_STR_PAR_ARRAY_COMMA_FUNC
+    case BHK_IIF: hint = GetFunctionName(id) & FB_STR_PAR_CONDITION_COMMA_TRUE_COMMA_FALSE
+    case BHK_ISINSTANCE: hint = GetFunctionName(id) & FB_STR_PAR_VALUE_COMMA_TYPE
     case else: return FALSE
   end select
   return TRUE
@@ -1705,9 +1725,7 @@ private function IsReservedUserFunctionName(byref nameText as String) as Boolean
 end function
 
 private function IsReservedBuiltinVariableNameForUserFunction(byref nameText as String) as Boolean
-  if lcase(nameText) = FB_STR_ANS then return TRUE
-  if nameText = FB_STR_FORMAL_VALIDATION_PROBE then return TRUE
-  return FALSE
+  return (lcase(nameText) = FB_STR_ANS)
 end function
 
 private function IsTrailingFormatterFunctionName(byref nameText as String) as Boolean
@@ -3499,46 +3517,12 @@ private function FindVariableIndex(byref n as String) as Integer
   return -1
 end function
 
-private function EvalValueHasFormalProbeTaint(byref v as EvalValue) as Boolean
-  return (v.flags and EVF_FORMAL_PROBE) <> 0
-end function
-
-private sub EvalValueSetFormalProbeTaint(byref v as EvalValue, byval enabled as Boolean)
-  if enabled then
-    v.flags = v.flags or EVF_FORMAL_PROBE
-  else
-    v.flags = v.flags and not CUInt(EVF_FORMAL_PROBE)
-  end if
-end sub
-
-private sub PropagateFormalProbeTaint2(byref outV as EvalValue, byref a as EvalValue, byref b as EvalValue)
-  if EvalValueHasFormalProbeTaint(a) orelse EvalValueHasFormalProbeTaint(b) then
-    EvalValueSetFormalProbeTaint(outV, TRUE)
-  end if
-end sub
-
-private sub LoadCleanFormalProbe(byref outValue as EvalValue)
-  dim probeIdx as Integer = FindVariableIndex(FB_STR_FORMAL_VALIDATION_PROBE)
-  if probeIdx >= 0 andalso variables(probeIdx).value.kind = VK_SCALAR then
-    outValue = variables(probeIdx).value
-  else
-    ValueSetInt64(outValue, 1)
-  end if
-  EvalValueSetFormalProbeTaint(outValue, FALSE)
-end sub
-
 #ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
 private function TryGetFunctionVariableOverride(byref n as String, byref v as EvalValue) as Boolean
   dim i as Integer
   for i = 0 to functionVariableCount - 1
     if functionVariableNames(i) = n then
-      dim idx as Integer = FindVariableIndex(FB_STR_FORMAL_VALIDATION_PROBE)
-      if idx >= 0 andalso variables(idx).value.kind = VK_SCALAR then
-        v = variables(idx).value
-      else
-        ValueSetInt64(v, 1)
-      end if
-      EvalValueSetFormalProbeTaint(v, TRUE)
+      ValueSetInt64(v, 0)
       return TRUE
     end if
   next i
@@ -4036,7 +4020,7 @@ private function TryHandleUnknownIdentifier(byref nam as String, byref outV as E
     if TryHandleBareBuiltinOrUdfIdent(nam, fnHint, FALSE, udfIdx, identStart, suppressUdfTailHint) then return FALSE
     return FALSE
   end if
-  AppendUniqueName(unknownVarsText, nam)
+  if syntaxCheckDepth = 0 then AppendUniqueName(unknownVarsText, nam)
   ValueSetInt64(outV, 0)
   canIndex = FALSE
   return TRUE
@@ -4722,22 +4706,14 @@ private function TryResolveArrayIndex(byval arrLen as LongInt, byval idxInt as L
 end function
 
 private function TryApplyArrayIndex(byref baseValue as EvalValue, byref idxValue as EvalValue, byref outValue as EvalValue) as Boolean
-  dim baseTainted as Boolean = EvalValueHasFormalProbeTaint(baseValue)
-  dim idxTainted as Boolean = EvalValueHasFormalProbeTaint(idxValue)
+  if syntaxCheckDepth > 0 then
+    ValueSetInt64(outValue, 0)
+    return TRUE
+  end if
   dim idxInt as LongInt
   if TryGetArrayIndexIntFromEvalValue(idxValue, idxInt, FALSE) = FALSE then
-    if idxTainted andalso idxValue.kind = VK_SCALAR then
-      '' Probe sample is not an integer. Bounds are checked at the call.
-      LoadCleanFormalProbe(outValue)
-      return TRUE
-    end if
     TryGetArrayIndexIntFromEvalValue(idxValue, idxInt, TRUE)
     return FALSE
-  end if
-  if baseTainted then
-    '' UDF body validation: a parameter-derived value has unknown length.
-    LoadCleanFormalProbe(outValue)
-    return TRUE
   end if
 
   if baseValue.kind <> VK_ARRAY then
@@ -4762,49 +4738,8 @@ private function TryApplyArraySlice( _
   byref outValue as EvalValue, _
   byval materialize as Boolean _
 ) as Boolean
-  if EvalValueHasFormalProbeTaint(baseValue) then
-    if hasStart then
-      if startValue.kind <> VK_SCALAR then
-        SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_SCALAR)
-        return FALSE
-      end if
-      if EvalValueHasFormalProbeTaint(startValue) = FALSE then
-        dim startIdxCheck as LongInt
-        if TryGetArrayIndexIntFromEvalValue(startValue, startIdxCheck) = FALSE then return FALSE
-      end if
-    end if
-    if hasStop then
-      if stopValue.kind <> VK_SCALAR then
-        SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_SCALAR)
-        return FALSE
-      end if
-      if EvalValueHasFormalProbeTaint(stopValue) = FALSE then
-        dim stopIdxCheck as LongInt
-        if TryGetArrayIndexIntFromEvalValue(stopValue, stopIdxCheck) = FALSE then return FALSE
-      end if
-    end if
-    if hasStep then
-      if stepValue.kind <> VK_SCALAR then
-        SetParseErrorById(PARSE_ERR_ARRAY_INDEX_MUST_BE_SCALAR)
-        return FALSE
-      end if
-      if EvalValueHasFormalProbeTaint(stepValue) = FALSE then
-        dim stepIdxCheck as LongInt
-        if TryGetArrayIndexIntFromEvalValue(stepValue, stepIdxCheck) = FALSE then return FALSE
-        if stepIdxCheck = 0 then
-          SetParseError(FB_STR_SLICE_STEP_MUST_NOT_BE_ZERO)
-          return FALSE
-        end if
-      end if
-    end if
-    '' Unknown length: keep the taint so a later index is not checked against this stand-in.
-    if materialize = FALSE then return TRUE
-    dim probe as EvalValue
-    LoadCleanFormalProbe(probe)
-    dim probeVals(0 to 0) as ScalarValue
-    probeVals(0) = ScalarValueFromEvalScalar(probe)
-    ValueSetArrayFromScalarValues(outValue, probeVals())
-    EvalValueSetFormalProbeTaint(outValue, TRUE)
+  if syntaxCheckDepth > 0 then
+    ValueSetInt64(outValue, 0)
     return TRUE
   end if
 
@@ -8377,6 +8312,10 @@ private function CompareEvalValues(byref leftV as EvalValue, byref rightV as Eva
 end function
 
 private function ApplyComparison(byref leftV as EvalValue, byref rightV as EvalValue, byval op as OperatorCmpNameId, byref outV as EvalValue) as Boolean
+  if syntaxCheckDepth > 0 then
+    ValueSetInt64(outV, 0)
+    return TRUE
+  end if
   if leftV.kind = VK_SCALAR andalso rightV.kind = VK_SCALAR then
     if ScalarIsTime(leftV.scalarValue) orelse ScalarIsTime(rightV.scalarValue) then
       if (ScalarIsTime(leftV.scalarValue) = FALSE andalso IsNonFiniteValue(leftV.scalar)) orelse _
@@ -8479,20 +8418,26 @@ private sub ValueSetBoolResult(byval b as Boolean, byref outV as EvalValue)
 end sub
 
 private function ApplyInt64ParserOp(byref leftV as EvalValue, byref rightV as EvalValue, byval op as OperatorBitNameId, byref outV as EvalValue) as Boolean
+  if syntaxCheckDepth > 0 then
+    ValueSetInt64(outV, 0)
+    return TRUE
+  end if
   if ValueApplyBinaryInt64(leftV, rightV, op, outV) = FALSE then
     SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
     return FALSE
   end if
-  PropagateFormalProbeTaint2(outV, leftV, rightV)
   return TRUE
 end function
 
 private function ApplyBinaryParserOp(byref leftV as EvalValue, byref rightV as EvalValue, byval op as UByte, byref outV as EvalValue) as Boolean
+  if syntaxCheckDepth > 0 then
+    ValueSetInt64(outV, 0)
+    return TRUE
+  end if
   if ApplyBinaryEvalPolicy(BSD_NUMERIC, leftV, rightV, op, OP_BIT_NONE, -1, outV, TRUE) = FALSE then
     SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
     return FALSE
   end if
-  PropagateFormalProbeTaint2(outV, leftV, rightV)
   return TRUE
 end function
 
@@ -8511,7 +8456,6 @@ private sub ApplyComparisonParserOpInPlace(byref leftV as EvalValue, byref right
   if ApplyComparison(leftV, rightV, op, outV) = FALSE then
     SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
   else
-    PropagateFormalProbeTaint2(outV, leftV, rightV)
     leftV = outV
   end if
 end sub
@@ -9172,7 +9116,7 @@ end sub
 
 private function IsIneligibleUnaryBuiltin(byval fnId as Integer) as Boolean
   select case fnId
-    case FUNC_RAND, FUNC_POW, FUNC_ATAN2, FUNC_HYPOT, FUNC_GCD, FUNC_LCM, FUNC_NCR, FUNC_NPR, FUNC_MOD, FUNC_CLAMP, FUNC_LOG, FUNC_RANDOM
+    case FUNC_RAND, FUNC_POW, FUNC_ATAN2, FUNC_HYPOT, FUNC_GCD, FUNC_LCM, FUNC_NCR, FUNC_NPR, FUNC_MOD, FUNC_CLAMP, FUNC_LOG, FUNC_RANDOM, FUNC_IIF, FUNC_ISINSTANCE
       return TRUE
     case else: return FALSE
   end select
@@ -9255,41 +9199,48 @@ private function LambdaBodyTake(byref body as string, byval stopMode as Integer,
       orelse (stopMode = LAMBDA_BODY_UNTIL_ARG_DELIM)
 end function
 
+'' Caller is on '('. Consumes the list and the closing ')'. On failure the caller rewinds.
+private function TryConsumeParenthesizedIdentList(fnParams() as string, byval quiet as Boolean) as Boolean
+  erase fnParams
+  if pStream[0] <> CHAR_LPAREN then return FALSE
+  pStream += 1
+  SkipSpaces()
+  if pStream[0] = CHAR_RPAREN then
+    pStream += 1
+    return TRUE
+  end if
+  do
+    if IsIdentStartChar(asc(pStream[0])) = FALSE then
+      if quiet = FALSE then SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
+      return FALSE
+    end if
+    dim nm as string = ConsumeIdentTokenFromStream()
+    if ubound(fnParams) < lbound(fnParams) then
+      redim fnParams(0 to 0)
+      fnParams(0) = nm
+    else
+      redim preserve fnParams(lbound(fnParams) to ubound(fnParams) + 1)
+      fnParams(ubound(fnParams)) = nm
+    end if
+    SkipSpaces()
+    if pStream[0] = CHAR_COMMA then
+      pStream += 1
+      SkipSpaces()
+    elseif pStream[0] = CHAR_RPAREN then
+      pStream += 1
+      return TRUE
+    else
+      if quiet = FALSE then SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
+      return FALSE
+    end if
+  loop
+end function
+
 private function TryConsumeLambdaParamList(fnParams() as string, byval quiet as Boolean) as Boolean
   erase fnParams
   SkipSpaces()
   if pStream[0] = CHAR_LPAREN then
-    pStream += 1
-    SkipSpaces()
-    if pStream[0] = CHAR_RPAREN then
-      pStream += 1
-      return TRUE
-    end if
-    do
-      if IsIdentStartChar(asc(pStream[0])) = FALSE then
-        if quiet = FALSE then SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
-        return FALSE
-      end if
-      dim nm as string = ConsumeIdentTokenFromStream()
-      if ubound(fnParams) < lbound(fnParams) then
-        redim fnParams(0 to 0)
-        fnParams(0) = nm
-      else
-        redim preserve fnParams(lbound(fnParams) to ubound(fnParams) + 1)
-        fnParams(ubound(fnParams)) = nm
-      end if
-      SkipSpaces()
-      if pStream[0] = CHAR_COMMA then
-        pStream += 1
-        SkipSpaces()
-      elseif pStream[0] = CHAR_RPAREN then
-        pStream += 1
-        return TRUE
-      else
-        if quiet = FALSE then SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
-        return FALSE
-      end if
-    loop
+    return TryConsumeParenthesizedIdentList(fnParams(), quiet)
   elseif IsIdentStartChar(asc(pStream[0])) then
     redim fnParams(0 to 0)
     fnParams(0) = ConsumeIdentTokenFromStream()
@@ -9320,7 +9271,154 @@ private function TryParseLambdaInnerSuffix(fnParams() as string, byref body as s
   return LambdaBodyTake(body, bodyMode, lambdaArgStart)
 end function
 
-private function TryFinalizeUnaryInlineLambda(fnParams() as string, byref body as string, byref outV as EvalValue, byref expectsUnary as String) as Boolean
+#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
+private sub SaveFunctionVariableOverrides(byref savedCount as Integer, savedNames() as String)
+  savedCount = functionVariableCount
+  if savedCount > 0 then
+    redim savedNames(0 to savedCount - 1)
+    for iSaved as Integer = 0 to savedCount - 1
+      savedNames(iSaved) = functionVariableNames(iSaved)
+    next iSaved
+  end if
+end sub
+
+private sub BindFunctionVariableOverrides(fnParams() as String)
+  dim paramCount as Integer = 0
+  if ubound(fnParams) >= lbound(fnParams) then paramCount = ubound(fnParams) - lbound(fnParams) + 1
+  if paramCount > 0 then
+    redim functionVariableNames(0 to paramCount - 1)
+    for iParam as Integer = 0 to paramCount - 1
+      functionVariableNames(iParam) = fnParams(lbound(fnParams) + iParam)
+    next iParam
+    functionVariableCount = paramCount
+  else
+    erase functionVariableNames
+    functionVariableCount = 0
+  end if
+end sub
+
+private sub RestoreFunctionVariableOverrides(byval savedCount as Integer, savedNames() as String)
+  if savedCount > 0 then
+    redim functionVariableNames(0 to savedCount - 1)
+    for iSaved as Integer = 0 to savedCount - 1
+      functionVariableNames(iSaved) = savedNames(iSaved)
+    next iSaved
+  else
+    erase functionVariableNames
+  end if
+  functionVariableCount = savedCount
+end sub
+#endif
+
+'' Tokens, brackets, and call arity. Returns the raw parser error and the column inside body.
+'' suppressTailHint forces the bare-name closer check off for this parse only.
+private function ParseSyntaxCheckedBody(byref body as String, byref errText as String, byref bodyCol as Integer, byval suppressTailHint as Boolean) as Boolean
+  dim savedStream as ZString ptr = pStream
+  dim savedExprStart as ZString ptr = exprStart
+  dim savedParseError as Integer = parseError
+  dim savedWasPercentage as Boolean = wasPercentage
+  dim savedBaseCol as Integer = errorBaseCol
+  dim savedLastErr as String = lastErrorText
+  dim savedUnknownVars as String = unknownVarsText
+  dim savedUnknownFuncs as String = unknownFuncsText
+  dim savedSyntaxDepth as Integer = syntaxCheckDepth
+  dim savedIifDefer as Integer = iifDeferCallArity
+  dim savedSuppress as Boolean = suppressBareFunctionTailHint
+
+  if suppressTailHint then suppressBareFunctionTailHint = TRUE
+  lastErrorText = ""
+  unknownVarsText = ""
+  unknownFuncsText = ""
+  pStream = strptr(body)
+  exprStart = pStream
+  errorBaseCol = 1
+  parseError = 0
+  syntaxCheckDepth = savedSyntaxDepth + 1
+  iifDeferCallArity = 0
+
+  dim dummy as EvalValue
+  dummy = ParseExpression()
+  SkipSpaces()
+
+  dim ok as Boolean = TRUE
+  errText = ""
+  bodyCol = 0
+  if parseError then
+    ok = FALSE
+    errText = lastErrorText
+    if len(errText) = 0 then errText = FB_STR_FAILED_TO_PARSE_USER_FUNCTION_BODY
+    bodyCol = CurrentParseErrorColumn()
+  elseif pStream[0] <> CHAR_NUL then
+    ok = FALSE
+    errText = FB_STR_UNEXPECTED_INPUT
+    bodyCol = CurrentParseErrorColumn()
+  end if
+
+  pStream = savedStream
+  exprStart = savedExprStart
+  parseError = savedParseError
+  wasPercentage = savedWasPercentage
+  errorBaseCol = savedBaseCol
+  lastErrorText = savedLastErr
+  unknownVarsText = savedUnknownVars
+  unknownFuncsText = savedUnknownFuncs
+  syntaxCheckDepth = savedSyntaxDepth
+  iifDeferCallArity = savedIifDefer
+  suppressBareFunctionTailHint = savedSuppress
+  return ok
+end function
+
+'' Bind the parameter names, syntax-check the body, then restore the previous binding.
+private function SyntaxCheckBodyWithParams(byref body as String, fnParams() as String, byref errText as String, byref bodyCol as Integer, byval suppressTailHint as Boolean) as Boolean
+#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
+  dim savedFunctionVariableCount as Integer
+  dim savedFunctionVariableNames() as String
+  SaveFunctionVariableOverrides(savedFunctionVariableCount, savedFunctionVariableNames())
+  BindFunctionVariableOverrides(fnParams())
+#endif
+  dim ok as Boolean = ParseSyntaxCheckedBody(body, errText, bodyCol, suppressTailHint)
+#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
+  RestoreFunctionVariableOverrides(savedFunctionVariableCount, savedFunctionVariableNames())
+#endif
+  return ok
+end function
+
+'' Tokens, brackets, and call arity only. Index, bitwise, and domain checks stay on the real call.
+private function SyntaxCheckInlineLambdaBody(byref body as string, fnParams() as string) as Boolean
+  dim savedSuppress as Boolean = suppressBareFunctionTailHint
+  dim savedBracket as Integer = arrayIndexBracketDepth
+  dim savedBodyCol as Integer = unaryFuncBodyParseErrorCol
+  dim savedFuncCol as Integer = unaryFuncParseErrorCol
+
+  suppressBareFunctionTailHint = TRUE
+  arrayIndexBracketDepth = 0
+
+  dim errText as String
+  dim bodyCol as Integer
+  dim ok as Boolean = SyntaxCheckBodyWithParams(body, fnParams(), errText, bodyCol, TRUE)
+
+  suppressBareFunctionTailHint = savedSuppress
+  arrayIndexBracketDepth = savedBracket
+  unaryFuncBodyParseErrorCol = savedBodyCol
+  unaryFuncParseErrorCol = savedFuncCol
+
+  if ok then return TRUE
+
+  dim msg as String = StripErrorLocationSuffix(errText)
+  if len(msg) = 0 then msg = FB_STR_FAILED_TO_PARSE_USER_FUNCTION_BODY
+  dim col as Integer = UnaryBodyErrorColumn(savedBodyCol, bodyCol, msg)
+  lastErrorText = ""
+  parseError = 0
+  if col > 0 then
+    SetParseErrorAtColumn(msg, col)
+  else
+    lastErrorText = msg
+    parseError = 1
+  end if
+  return FALSE
+end function
+
+private function TryFinalizeUnaryInlineLambda(fnParams() as string, byref body as string, byref outV as EvalValue, byref expectsUnary as String, byval checkSyntax as Boolean) as Boolean
   dim pcount as Integer = 0
   if ubound(fnParams) >= lbound(fnParams) then pcount = ubound(fnParams) - lbound(fnParams) + 1
   if pcount <> 1 then
@@ -9330,6 +9428,10 @@ private function TryFinalizeUnaryInlineLambda(fnParams() as string, byref body a
   if InlineLambdaBodyIsEffectivelyEmpty(body) then
     SetFunctionBodyIsEmptyError()
     return FALSE
+  end if
+  '' An unclosed call ends at NUL. Leave that missing-closer error to the caller.
+  if checkSyntax then
+    if SyntaxCheckInlineLambdaBody(body, fnParams()) = FALSE then return FALSE
   end if
   ValueSetInlineLambda(outV, fnParams(), body)
   CopyUnaryFuncParseColumnsToEvalValue(outV)
@@ -9364,10 +9466,6 @@ private function TryParseLambdaAssignmentRhs(fnParams() as string, byref lamBody
   SkipSpaces()
   if TryParseWrappedParenLambdaSuffix(fnParams(), lamBody, LAMBDA_BODY_UNTIL_RPAREN) then
     if pStream[0] = CHAR_NUL orelse pStream[0] = CHAR_SEMICOLON then
-      if InlineLambdaBodyIsEffectivelyEmpty(lamBody) then
-        SetFunctionBodyIsEmptyError()
-        return FALSE
-      end if
       return TRUE
     end if
     pStream = saveOuter
@@ -9377,13 +9475,7 @@ private function TryParseLambdaAssignmentRhs(fnParams() as string, byref lamBody
   SkipSpaces()
   if TryParseLambdaInnerSuffix(fnParams(), lamBody, LAMBDA_BODY_UNTIL_SEMICOLON_EOF, 0) = FALSE then return FALSE
   SkipSpaces()
-  if pStream[0] = CHAR_NUL orelse pStream[0] = CHAR_SEMICOLON then
-    if InlineLambdaBodyIsEffectivelyEmpty(lamBody) then
-      SetFunctionBodyIsEmptyError()
-      return FALSE
-    end if
-    return TRUE
-  end if
+  if pStream[0] = CHAR_NUL orelse pStream[0] = CHAR_SEMICOLON then return TRUE
   return FALSE
 end function
 
@@ -9410,7 +9502,7 @@ private function TryParseUnaryLambdaOrFunctionRef(byref outV as EvalValue, byref
       if TryParseLambdaInnerSuffix(fnParams(), body, LAMBDA_BODY_UNTIL_RPAREN, 0) then
         SkipSpaces()
         if pStream[0] = CHAR_COMMA orelse pStream[0] = CHAR_RPAREN orelse pStream[0] = CHAR_NUL then
-          return TryFinalizeUnaryInlineLambda(fnParams(), body, outV, expectsUnary)
+          return TryFinalizeUnaryInlineLambda(fnParams(), body, outV, expectsUnary, (pStream[0] <> CHAR_NUL))
         end if
       end if
     end if
@@ -9430,7 +9522,7 @@ private function TryParseUnaryLambdaOrFunctionRef(byref outV as EvalValue, byref
   end if
   SkipSpaces()
   if pStream[0] = CHAR_COMMA orelse pStream[0] = CHAR_RPAREN orelse pStream[0] = CHAR_NUL then
-    return TryFinalizeUnaryInlineLambda(fnParams(), body, outV, expectsUnary)
+    return TryFinalizeUnaryInlineLambda(fnParams(), body, outV, expectsUnary, (pStream[0] <> CHAR_NUL))
   end if
   pStream = save
   erase fnParams
@@ -10824,6 +10916,10 @@ private function TryHandleBuiltinArrayTransform(byval fnId as Integer, byref fnN
       ValueSetArrayFromScalarValues(outV, vals())
       return TRUE
     case FUNC_FLAT
+      if ubound(args) = -1 then
+        ValueInitArrayLike(outV, 0, -1)
+        return TRUE
+      end if
       prep = TrySingleArgPassthroughOrCollect(args(), fnName, FALSE, outV, vals(), c)
       if prep = -1 orelse prep = 1 then return TRUE
       ValueSetArrayFromScalarValues(outV, vals())
@@ -11021,24 +11117,275 @@ private function TryDispatchBuiltinCall(byval fnId as Integer, byref fnName as S
   return FALSE
 end function
 
+private function ParseIifArgSpans(spanStart() as ZString ptr, byref spanCount as Integer) as Boolean
+  spanCount = 0
+  if pStream[0] = CHAR_COMMA then
+    SetParseErrorById(PARSE_ERR_UNEXPECTED_COMMA)
+    return FALSE
+  end if
+  if pStream[0] = CHAR_RPAREN then return TRUE
+  do
+    if spanCount = 0 then
+      redim spanStart(0 to 0)
+    else
+      redim preserve spanStart(0 to spanCount)
+    end if
+    spanStart(spanCount) = pStream
+    spanCount += 1
+    dim ignored as EvalValue = ParseExpression()
+    if parseError then return FALSE
+    SkipSpaces()
+    dim hasComma as Boolean
+    if TryConsumeCommaArgSeparator(hasComma) = FALSE then return FALSE
+    if hasComma = FALSE then exit do
+  loop
+  return TRUE
+end function
+
+private sub SetFilterOrSortbyExpects(byref fnLower as String, byref expectsOne as String, byref expectsUnary as String)
+  expectsOne = FB_STR_SORTBY_EXPECTS_ONE_FUNCTION
+  expectsUnary = FB_STR_SORTBY_EXPECTS_UNARY_FUNCTION
+  if fnLower = FB_STR_FILTER then
+    expectsOne = FB_STR_FILTER_EXPECTS_ONE_FUNCTION
+    expectsUnary = FB_STR_FILTER_EXPECTS_UNARY_FUNCTION
+  end if
+end sub
+
+'' While syntaxCheckDepth > 0, calls are parsed for shape and arity only.
+private function ParseCallInIifSyntaxCheck(byref fnName as String) as EvalValue
+  dim outV as EvalValue
+  ValueSetInt64(outV, 0)
+  dim args() as EvalValue
+  dim argsCount as Integer = 0
+  dim argsCap as Integer = 0
+  dim fnLower as String = lcase(fnName)
+  if fnLower = FB_STR_SORTBY orelse fnLower = FB_STR_FILTER then
+    dim expectsOne as String
+    dim expectsUnary as String
+    SetFilterOrSortbyExpects(fnLower, expectsOne, expectsUnary)
+    if TryParseUnaryFunctionCallArguments(args(), argsCount, argsCap, expectsOne, expectsUnary) = FALSE then return outV
+  else
+    if TryParseCallArguments(args(), argsCount, argsCap) = FALSE then return outV
+  end if
+  if TryConsumeClosingParenOrSetError() = FALSE then return outV
+  if parseError then return outV
+
+  dim fnId as Integer = TryFindBuiltinFunctionId(fnLower)
+  dim skipArity as Boolean = FALSE
+  if argsCount > 0 then
+    dim argI as Integer
+    for argI = 0 to argsCount - 1
+      if args(argI).expandArgs then
+        skipArity = TRUE
+        exit for
+      end if
+    next argI
+  end if
+  if iifDeferCallArity = 0 andalso skipArity = FALSE then
+    if fnId >= 0 then
+      dim minArgs as Integer = 0
+      dim maxArgs as Integer = 0
+      GetBuiltinArity(fnId, minArgs, maxArgs)
+      if minArgs >= 0 then
+        if ValidateCallArity(minArgs, maxArgs, argsCount, fnName) = FALSE then return outV
+      end if
+    else
+      dim udfIdx as Integer = FindFunctionIndex(fnName)
+      if udfIdx >= 0 then
+        dim pCount as Integer = 0
+        if ubound(userFunctions(udfIdx).params) >= lbound(userFunctions(udfIdx).params) then
+          pCount = ubound(userFunctions(udfIdx).params) - lbound(userFunctions(udfIdx).params) + 1
+        end if
+        if pCount <> argsCount then
+          SetExactArgCountError(fnName, pCount, argsCount)
+          return outV
+        end if
+      end if
+    end if
+  end if
+  if fnId = FUNC_UNPACK then outV.expandArgs = TRUE
+  return outV
+end function
+
+'' iif(condition, expr_if_true, expr_if_false). Both branches are syntax-checked.
+'' Only the selected branch is evaluated.
+private function ParseIifCall() as EvalValue
+  dim outV as EvalValue
+  ValueSetInt64(outV, 0)
+  if syntaxCheckDepth > 0 then
+    dim nested() as ZString ptr
+    dim nestedCount as Integer = 0
+    if ParseIifArgSpans(nested(), nestedCount) = FALSE then return outV
+    if TryConsumeClosingParenOrSetError() = FALSE then return outV
+    if parseError then return outV
+    if iifDeferCallArity = 0 andalso nestedCount <> 3 then
+      SetExactArgCountError(GetFunctionName(FUNC_IIF), 3, nestedCount)
+    end if
+    return outV
+  end if
+
+  dim spanStart() as ZString ptr
+  dim spanCount as Integer = 0
+  syntaxCheckDepth += 1
+  iifDeferCallArity = 1
+  dim spansOk as Boolean = ParseIifArgSpans(spanStart(), spanCount)
+  iifDeferCallArity = 0
+  syntaxCheckDepth -= 1
+  if spansOk = FALSE then return outV
+  if TryConsumeClosingParenOrSetError() = FALSE then return outV
+  dim endPtr as ZString ptr = pStream
+  if spanCount <> 3 then
+    SetExactArgCountError(GetFunctionName(FUNC_IIF), 3, spanCount)
+    return outV
+  end if
+
+  pStream = spanStart(0)
+  dim cond as EvalValue = ParseExpression()
+  pStream = endPtr
+  if parseError then return cond
+
+  dim takeTrue as Boolean = EvalValueIsTruthy(cond)
+  dim otherIdx as Integer = 2
+  dim selectedIdx as Integer = 1
+  if takeTrue = FALSE then
+    otherIdx = 1
+    selectedIdx = 2
+  end if
+
+  syntaxCheckDepth += 1
+  pStream = spanStart(otherIdx)
+  ParseExpression()
+  syntaxCheckDepth -= 1
+  pStream = endPtr
+  if parseError then return outV
+
+  pStream = spanStart(selectedIdx)
+  dim branch as EvalValue = ParseExpression()
+  pStream = endPtr
+  return branch
+end function
+
+private function IsInstanceTypeName(byref typeName as String) as Boolean
+  return (typeName = FB_STR_INT) orelse (typeName = FB_STR_FLOAT) orelse (typeName = FB_STR_TIME) orelse _
+         (typeName = FB_STR_COMPLEX) orelse (typeName = FB_STR_ARRAY) orelse (typeName = FB_STR_LIST)
+end function
+
+'' One value, one 0/1 result. Array, then complex, then time, then exact int, then float.
+private function ValueIsInstanceOfType(byref v as EvalValue, byref typeName as String) as Boolean
+  if v.kind = VK_ARRAY then
+    return (typeName = FB_STR_ARRAY) orelse (typeName = FB_STR_LIST)
+  end if
+  if v.kind <> VK_SCALAR then return FALSE
+  if (Parser_SupportComplexNumbers <> FALSE) andalso ScalarHasNonzeroImaginaryPart(v.scalarValue) then
+    return (typeName = FB_STR_COMPLEX)
+  end if
+  if ScalarIsTime(v.scalarValue) then
+    return (typeName = FB_STR_TIME)
+  end if
+  if ScalarHasExactIntegerPayload(v.scalarValue) then
+    return (typeName = FB_STR_INT)
+  end if
+  return (typeName = FB_STR_FLOAT)
+end function
+
+'' isinstance(value, type). The type is a bare name, not an expression.
+'' Syntax-check validates the name and the written arity. unpack expansion is checked on the real call.
+private function ParseIsInstanceCall() as EvalValue
+  dim outV as EvalValue
+  ValueSetInt64(outV, 0)
+  dim fnName as String = GetFunctionName(FUNC_ISINSTANCE)
+  SkipSpaces()
+  if pStream[0] = CHAR_RPAREN then
+    pStream += 1
+    if iifDeferCallArity = 0 then SetExactArgCountError(fnName, 2, 0)
+    return outV
+  end if
+  if pStream[0] = CHAR_COMMA then
+    SetParseErrorById(PARSE_ERR_UNEXPECTED_COMMA)
+    return outV
+  end if
+
+  dim valueV as EvalValue = ParseExpression()
+  if parseError then return outV
+  SkipSpaces()
+  dim hasComma as Boolean
+  if TryConsumeCommaArgSeparator(hasComma) = FALSE then return outV
+  if hasComma = FALSE then
+    if TryConsumeClosingParenOrSetError() = FALSE then return outV
+    if iifDeferCallArity = 0 then SetExactArgCountError(fnName, 2, 1)
+    return outV
+  end if
+
+  SkipSpaces()
+  if IsIdentStartChar(asc(pStream[0])) = FALSE then
+    SetParseError(fnName & FB_STR_PAR_EXPECTS_A_TYPE_NAME)
+    return outV
+  end if
+  dim typeTok as String = lcase(ConsumeIdentTokenFromStream())
+  SkipSpaces()
+  if (pStream[0] <> CHAR_RPAREN) andalso (pStream[0] <> CHAR_COMMA) then
+    SetParseError(fnName & FB_STR_PAR_EXPECTS_A_TYPE_NAME)
+    return outV
+  end if
+  if IsInstanceTypeName(typeTok) = FALSE then
+    SetParseError(FB_STR_UNKNOWN_TYPE_NAME_COLON & typeTok)
+    return outV
+  end if
+
+  dim argc as Integer = 2
+  do
+    if TryConsumeCommaArgSeparator(hasComma) = FALSE then return outV
+    if hasComma = FALSE then exit do
+    ParseExpression()
+    if parseError then return outV
+    argc += 1
+  loop
+  if TryConsumeClosingParenOrSetError() = FALSE then return outV
+  if argc <> 2 then
+    if iifDeferCallArity = 0 then SetExactArgCountError(fnName, 2, argc)
+    return outV
+  end if
+  if syntaxCheckDepth > 0 then return outV
+
+  if valueV.expandArgs then
+    dim nItems as Integer = 1
+    if valueV.kind = VK_ARRAY then nItems = ValueArrayLen(valueV)
+    if nItems <> 1 then
+      SetExactArgCountError(fnName, 2, nItems + 1)
+      return outV
+    end if
+    if valueV.kind = VK_ARRAY then
+      dim elemV as EvalValue
+      ValueGetArrayElemAsScalar(valueV, lbound(valueV.arr), elemV)
+      valueV = elemV
+    end if
+  end if
+  if ValueIsInstanceOfType(valueV, typeTok) then
+    ValueSetInt64(outV, 1)
+  else
+    ValueSetInt64(outV, 0)
+  end if
+  return outV
+end function
+
 private function ParseFunctionCall(byref fnName as String) as EvalValue
   dim outV as EvalValue
   if pStream[0] <> CHAR_LPAREN then SetMissingOpeningBracketError(): return outV
   pStream += 1
   SkipSpaces()
   if TrySetIncompleteOpenedFunctionCallHint(fnName) then return outV
+  if lcase(fnName) = FB_STR_IIF then return ParseIifCall()
+  if lcase(fnName) = FB_STR_ISINSTANCE then return ParseIsInstanceCall()
+  if syntaxCheckDepth > 0 then return ParseCallInIifSyntaxCheck(fnName)
 
   dim args() as EvalValue
   dim argsCount as Integer = 0
   dim argsCap as Integer = 0
   dim fnLower as String = lcase(fnName)
   if fnLower = FB_STR_SORTBY orelse fnLower = FB_STR_FILTER then
-    dim expectsOne as String = FB_STR_SORTBY_EXPECTS_ONE_FUNCTION
-    dim expectsUnary as String = FB_STR_SORTBY_EXPECTS_UNARY_FUNCTION
-    if fnLower = FB_STR_FILTER then
-      expectsOne = FB_STR_FILTER_EXPECTS_ONE_FUNCTION
-      expectsUnary = FB_STR_FILTER_EXPECTS_UNARY_FUNCTION
-    end if
+    dim expectsOne as String
+    dim expectsUnary as String
+    SetFilterOrSortbyExpects(fnLower, expectsOne, expectsUnary)
     if TryParseUnaryFunctionCallArguments(args(), argsCount, argsCap, expectsOne, expectsUnary) = FALSE then return outV
   else
     if TryParseCallArguments(args(), argsCount, argsCap) = FALSE then return outV
@@ -11051,17 +11398,6 @@ private function ParseFunctionCall(byref fnName as String) as EvalValue
     erase args
   elseif argsCap <> argsCount then
     redim preserve args(0 to argsCount - 1)
-  end if
-
-  dim argsTainted as Boolean = FALSE
-  if argsCount > 0 then
-    dim argI as Integer
-    for argI = 0 to argsCount - 1
-      if EvalValueHasFormalProbeTaint(args(argI)) then
-        argsTainted = TRUE
-        exit for
-      end if
-    next argI
   end if
 
   dim fn as String = fnLower
@@ -11084,9 +11420,6 @@ private function ParseFunctionCall(byref fnName as String) as EvalValue
         end if
       end if
     end if
-  end if
-  if argsTainted andalso parseError = 0 then
-    EvalValueSetFormalProbeTaint(outV, TRUE)
   end if
   return outV
 end function
@@ -11433,16 +11766,10 @@ private function ParseFactor() as EvalValue
         end if
       loop while hasComma
       if TryConsumeClosingParenOrSetError() = FALSE then return n
-      dim elemsTainted as Boolean = FALSE
-      dim elemI as Integer
-      for elemI = lbound(elems) to ubound(elems)
-        if EvalValueHasFormalProbeTaint(elems(elemI)) then elemsTainted = TRUE
-      next elemI
       dim vals() as ScalarValue
       dim flatCount as Integer = CollectArgsAsScalarValues(elems(), vals())
       if flatCount <= 0 then
         ValueInitArrayLike(n, 0, -1)
-        if elemsTainted then EvalValueSetFormalProbeTaint(n, TRUE)
       else
         dim sawTime as Boolean = FALSE
         dim sawNonTime as Boolean = FALSE
@@ -11455,11 +11782,12 @@ private function ParseFactor() as EvalValue
           end if
         next flatI
         if sawTime andalso sawNonTime then
-          SetTimeArrayMixedError("array literal")
-          return n
+          if syntaxCheckDepth = 0 then
+            SetTimeArrayMixedError("array literal")
+            return n
+          end if
         end if
         ValueSetArrayFromScalarValues(n, vals())
-        if elemsTainted then EvalValueSetFormalProbeTaint(n, TRUE)
       end if
     else
       if TryConsumeClosingParenOrSetError() = FALSE then return n
@@ -11480,6 +11808,7 @@ private function TryConsumePostfixPercent(byref n as EvalValue) as Boolean
     pStream -= 1
     return FALSE
   end if
+  if syntaxCheckDepth > 0 then return TRUE
   if n.kind <> VK_SCALAR then
     SetParseErrorById(PARSE_ERR_PERCENTAGE_REQUIRES_SCALAR_VALUE)
     return TRUE
@@ -11498,7 +11827,6 @@ private function TryConsumePostfixPercent(byref n as EvalValue) as Boolean
     SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
     return TRUE
   end if
-  if EvalValueHasFormalProbeTaint(n) then EvalValueSetFormalProbeTaint(outV, TRUE)
   n = outV
   wasPercentage = TRUE
   return TRUE
@@ -11593,7 +11921,6 @@ private function ParseUnary() as EvalValue
     if parseError then return v
     dim outV as EvalValue
     if TryNegateEvalScalarUnary(v, outV) then
-      if EvalValueHasFormalProbeTaint(v) then EvalValueSetFormalProbeTaint(outV, TRUE)
       return outV
     end if
     if Parser_SupportComplexNumbers andalso v.kind = VK_SCALAR then
@@ -11604,7 +11931,6 @@ private function ParseUnary() as EvalValue
       dim outI as Double = -ai
       if IsNaNValue(ai) then outI = MakeNaN()
       ValueSetScalarComplexFromDoubles(outV, -ar, outI)
-      if EvalValueHasFormalProbeTaint(v) then EvalValueSetFormalProbeTaint(outV, TRUE)
       return outV
     end if
     dim minusOne as EvalValue
@@ -11616,6 +11942,11 @@ private function ParseUnary() as EvalValue
     dim v as EvalValue
     v = ParseUnary()
     if parseError then return v
+    if syntaxCheckDepth > 0 then
+      '' Complex ~ is a run-time check, same as bitwise and indexing.
+      ValueSetInt64(v, 0)
+      return v
+    end if
     if Parser_SupportComplexNumbers andalso EvalValueHasNonzeroImaginary(v) then
       SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
       return v
@@ -11630,16 +11961,12 @@ private function ParseUnary() as EvalValue
     dim v as EvalValue
     v = ParseUnary()
     if parseError then return v
-    dim keepTaint as Boolean = EvalValueHasFormalProbeTaint(v)
     ValueSetBoolResult(not EvalValueIsTruthy(v), v)
-    if keepTaint then EvalValueSetFormalProbeTaint(v, TRUE)
     return v
   elseif MatchKeywordOperator(OpName(OP_NOT)) then
     dim v as EvalValue = ParseLogicalNot()
     if parseError then return v
-    dim keepNotTaint as Boolean = EvalValueHasFormalProbeTaint(v)
     ValueSetBoolResult(not EvalValueIsTruthy(v), v)
-    if keepNotTaint then EvalValueSetFormalProbeTaint(v, TRUE)
     return v
   end if
 
@@ -11678,7 +12005,6 @@ private sub ApplyPercentageRhsByContext(byref lhs as EvalValue, byref rhs as Eva
   if IsAdditiveTermBoundary() then
     dim pctV as EvalValue
     if ApplyBinaryParserOp(lhs, rhs, CHAR_ASTERISK, pctV) then
-      PropagateFormalProbeTaint2(pctV, lhs, rhs)
       rhs = pctV
     end if
   end if
@@ -11868,9 +12194,7 @@ private function ParseLogicalNot() as EvalValue
   if MatchKeywordOperator(OpName(OP_NOT)) then
     SkipSpaces()
     dim rhs as EvalValue = ParseLogicalNot()
-    dim keepNotTaint as Boolean = EvalValueHasFormalProbeTaint(rhs)
     ValueSetBoolResult(not EvalValueIsTruthy(rhs), rhs)
-    if keepNotTaint then EvalValueSetFormalProbeTaint(rhs, TRUE)
     return rhs
   end if
   return ParseComparison()
@@ -11905,13 +12229,11 @@ private function ParseLeftAssocLogical(byval keywordId as OperatorNameId, byval 
     else
       n2 = ParseLogicalNot()
     end if
-    dim keepLogicTaint as Boolean = EvalValueHasFormalProbeTaint(n) orelse EvalValueHasFormalProbeTaint(n2)
     if useOr then
       ValueSetBoolResult(EvalValueIsTruthy(n) orelse EvalValueIsTruthy(n2), n)
     else
       ValueSetBoolResult(EvalValueIsTruthy(n) andalso EvalValueIsTruthy(n2), n)
     end if
-    if keepLogicTaint then EvalValueSetFormalProbeTaint(n, TRUE)
     SkipSpaces()
   wend
   return n
@@ -11931,83 +12253,8 @@ private function ParseExpression() as EvalValue
 end function
 
 private function TryValidateUserFunctionBodyExpression(byref body as String, fnParams() as String, byref errText as String) as Boolean
-  dim savedStream as ZString ptr = pStream
-  dim savedExprStart as ZString ptr = exprStart
-  dim savedParseError as Integer = parseError
-  dim savedWasPercentage as Boolean = wasPercentage
-  dim savedBaseCol as Integer = errorBaseCol
-  dim savedLastErr as String = lastErrorText
-  dim savedUnknownVars as String = unknownVarsText
-  dim savedUnknownFuncs as String = unknownFuncsText
-
-#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
-  dim savedFunctionVariableCount as Integer = functionVariableCount
-  dim savedFunctionVariableNames() as String
-  if savedFunctionVariableCount > 0 then
-    redim savedFunctionVariableNames(0 to savedFunctionVariableCount - 1)
-    for iSaved as Integer = 0 to savedFunctionVariableCount - 1
-      savedFunctionVariableNames(iSaved) = functionVariableNames(iSaved)
-    next iSaved
-  end if
-
-  dim paramCount as Integer = 0
-  if ubound(fnParams) >= lbound(fnParams) then paramCount = ubound(fnParams) - lbound(fnParams) + 1
-  if paramCount > 0 then
-    redim functionVariableNames(0 to paramCount - 1)
-    for iParam as Integer = 0 to paramCount - 1
-      functionVariableNames(iParam) = fnParams(lbound(fnParams) + iParam)
-    next iParam
-    functionVariableCount = paramCount
-  else
-    erase functionVariableNames
-    functionVariableCount = 0
-  end if
-#endif
-
-  lastErrorText = ""
-  unknownVarsText = ""
-  unknownFuncsText = ""
-  pStream = strptr(body)
-  exprStart = pStream
-  errorBaseCol = 1
-  parseError = 0
-
-  dim dummy as EvalValue
-  dummy = ParseExpression()
-  SkipSpaces()
-
-  dim ok as Boolean = TRUE
-  if parseError then
-    ok = FALSE
-    errText = lastErrorText
-    if len(errText) = 0 then errText = FB_STR_FAILED_TO_PARSE_USER_FUNCTION_BODY
-  elseif pStream[0] <> CHAR_NUL then
-    ok = FALSE
-    errText = FB_STR_UNEXPECTED_INPUT
-  end if
-
-  pStream = savedStream
-  exprStart = savedExprStart
-  parseError = savedParseError
-  wasPercentage = savedWasPercentage
-  errorBaseCol = savedBaseCol
-  lastErrorText = savedLastErr
-  unknownVarsText = savedUnknownVars
-  unknownFuncsText = savedUnknownFuncs
-
-#ifdef __FB_FUNC_VARS_OVERRIDE_GLOBALS__
-  if savedFunctionVariableCount > 0 then
-    redim functionVariableNames(0 to savedFunctionVariableCount - 1)
-    for iSaved as Integer = 0 to savedFunctionVariableCount - 1
-      functionVariableNames(iSaved) = savedFunctionVariableNames(iSaved)
-    next iSaved
-  else
-    erase functionVariableNames
-  end if
-  functionVariableCount = savedFunctionVariableCount
-#endif
-
-  return ok
+  dim bodyCol as Integer
+  return SyntaxCheckBodyWithParams(body, fnParams(), errText, bodyCol, FALSE)
 end function
 
 private sub ResetTopLevelEvaluationState(byref exprInput as String)
@@ -12273,9 +12520,6 @@ sub Parser_ClearVariables()
   erase userFunctions
   dim emptyExpr as String = ""
   ResetTopLevelEvaluationState(emptyExpr)
-  dim probeDefault as EvalValue
-  ValueSetInt64(probeDefault, 1)
-  SetVariable(FB_STR_FORMAL_VALIDATION_PROBE, probeDefault)
   if Parser_SupportComplexNumbers then
     dim iu as EvalValue
     ValueSetImagUnit(iu)
@@ -12660,6 +12904,21 @@ private function TryEvaluateElementAssignStatement(byref result as Double, byref
   return TRUE
 end function
 
+'' Validate, store, and publish ``defined f(...)``. Empty-body rejection stays in the validation.
+private function TryCommitDefinedUserFunction(byref fnName as String, fnParams() as String, byref body as String, byref result as Double, byref resultText as String, byref isArray as Boolean) as Boolean
+  dim errText as String = ""
+  if TryValidateUserFunctionDefinition(fnName, fnParams(), body, errText) = FALSE then
+    SetValidationError(errText)
+    return FALSE
+  end if
+  SetUserFunction(fnName, fnParams(), body)
+  resultText = FB_STR_DEFINED & FormatFunctionSignatureText(fnName, fnParams())
+  isArray = FALSE
+  result = 0
+  InvalidateLastRawResult()
+  return TRUE
+end function
+
 private function TryEvaluateStatementCore(byref exprInput as String, byref result as Double, byref resultText as String, byref isArray as Boolean, byval suppressTailHint as Boolean) as Boolean
   dim savedSuppressTailHint as Boolean = suppressBareFunctionTailHint
   suppressBareFunctionTailHint = suppressTailHint
@@ -12677,13 +12936,13 @@ private function TryEvaluateStatementCore(byref exprInput as String, byref resul
   end if
 
   pStream = StrPtr(exprInput)
+  SkipSpaces()
   exprStart = pStream
   parseError = 0
   isArray = FALSE
   resultText = ""
   result = 0
 
-  SkipSpaces()
   if IsIdentStartChar(asc(pStream[0])) then
     dim stmtStart as ZString ptr = pStream
     if PeekIdentFollowedByAssignEquals(stmtStart) then
@@ -12696,19 +12955,12 @@ private function TryEvaluateStatementCore(byref exprInput as String, byref resul
           dim lamP() as string
           dim lamB as string = ""
           if PeekRhsMayBeLambdaSyntaxAt(afterEq) andalso TryParseLambdaAssignmentRhs(lamP(), lamB) then
-          dim lamUdfErr as string = ""
-          if TryValidateUserFunctionDefinition(varName, lamP(), lamB, lamUdfErr) = FALSE then
-            SetValidationError(lamUdfErr)
+            if TryCommitDefinedUserFunction(varName, lamP(), lamB, result, resultText, isArray) = FALSE then
+              suppressBareFunctionTailHint = savedSuppressTailHint
+              return FALSE
+            end if
             suppressBareFunctionTailHint = savedSuppressTailHint
-            return FALSE
-          end if
-          SetUserFunction(varName, lamP(), lamB)
-          resultText = FB_STR_DEFINED & FormatFunctionSignatureText(varName, lamP())
-          isArray = FALSE
-          result = 0
-          InvalidateLastRawResult()
-          suppressBareFunctionTailHint = savedSuppressTailHint
-          return TRUE
+            return TRUE
           end if
         elseif PeekRhsMayBeLambdaSyntaxAt(afterEq) then
           SetParseErrorById(PARSE_ERR_UNEXPECTED_TOKEN)
@@ -12764,63 +13016,29 @@ private function TryEvaluateStatementCore(byref exprInput as String, byref resul
       dim varName as String = ConsumeIdentTokenFromStream()
       SkipSpaces()
       if pStream[0] = CHAR_LPAREN then
-      dim savedPos as ZString ptr = pStream
-      pStream += 1
-      SkipSpaces()
-      dim fnParams() as String
-      dim parseParamsOk as Integer = 1
-
-      if pStream[0] <> CHAR_RPAREN then
-        do
-          if not IsIdentStartChar(asc(pStream[0])) then
-            parseParamsOk = 0
-            exit do
-          end if
-          dim parName as String = ConsumeIdentTokenFromStream()
-          if ubound(fnParams) = -1 then
-            redim fnParams(0)
-          else
-            redim preserve fnParams(ubound(fnParams) + 1)
-          end if
-          fnParams(ubound(fnParams)) = parName
+        dim savedPos as ZString ptr = pStream
+        dim fnParams() as String
+        if TryConsumeParenthesizedIdentList(fnParams(), TRUE) then
           SkipSpaces()
-          if pStream[0] = CHAR_COMMA then
+          if pStream[0] = CHAR_EQUALS andalso pStream[1] <> CHAR_EQUALS then
             pStream += 1
             SkipSpaces()
-          else
-            exit do
-          end if
-        loop
-      end if
-
-      if parseParamsOk andalso pStream[0] = CHAR_RPAREN then
-        pStream += 1
-        SkipSpaces()
-        if pStream[0] = CHAR_EQUALS andalso pStream[1] <> CHAR_EQUALS then
-          pStream += 1
-          SkipSpaces()
-          dim udfValidationErr as String
-          dim body as String = *pStream
-          if TryValidateUserFunctionDefinition(varName, fnParams(), body, udfValidationErr) = FALSE then
-            SetValidationError(udfValidationErr)
+            dim body as String = *pStream
+            if TryCommitDefinedUserFunction(varName, fnParams(), body, result, resultText, isArray) = FALSE then
+              suppressBareFunctionTailHint = savedSuppressTailHint
+              return FALSE
+            end if
             suppressBareFunctionTailHint = savedSuppressTailHint
-            return FALSE
+            return TRUE
           end if
-          SetUserFunction(varName, fnParams(), body)
-          resultText = FB_STR_DEFINED & FormatFunctionSignatureText(varName, fnParams())
-          isArray = FALSE
-          result = 0
-          InvalidateLastRawResult()
-          suppressBareFunctionTailHint = savedSuppressTailHint
-          return TRUE
         end if
-      end if
-      pStream = savedPos
+        pStream = savedPos
       end if
     end if
   end if
 
   pStream = StrPtr(exprInput)
+  SkipSpaces()
   exprStart = pStream
   parseError = 0
   dim outV as EvalValue

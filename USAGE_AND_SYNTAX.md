@@ -256,7 +256,7 @@ Notes:
 - Reserved names cannot be used for function names:
   - `hex(x)=x` -> error (`reserved function name`)
   - `e(x)=x` -> error (`reserved constant name`)
-  - `ans(x)=x` or `_(x)=x` -> error (`reserved built-in variable name`) - these names are reserved for the last-result variable `ans` and the formal-validation probe variable `_` (see below)
+  - `ans(x)=x` -> error (`reserved built-in variable name`). `ans` is the last-result variable.
   - `nan=1` -> error (`reserved constant name`)
 - Recursive functions are not supported:
   - `f(x) = x*f(x-1)` -> error (`recursive function call`)
@@ -278,21 +278,17 @@ Notes:
 
 #### User-Defined Functions Validation
 
-When you define a function, the body is evaluated once with **dummy** arguments so obvious errors are caught early. Every parameter is replaced by the scalar variable **`_`** with the default value of **`1`**. Real calls still use the arguments you pass.
+Defining a function syntax-checks the whole body. It does not run the body, so a constant that would fail at run time does not reject the definition, and calls such as `rand` do not run at definition time. Parameter names are known names during that check.
 
-With the default **`_` = `1`**, validation can fail even when the function would work for other inputs:
+A direct call with a bad token, a bad bracket, or the wrong number of arguments rejects the definition. That includes a call in either branch of `iif`. A `filter` or `sortby` lambda body is syntax-checked when the lambda is parsed, so a bad token, a bad bracket, or a wrong call arity inside the lambda also rejects the definition. An empty body, a direct recursive call, or a reserved or duplicate name still rejects the definition. An unknown name that is not a bare built-in stays late-bound and does not reject the definition. `filter` or `sortby` with a function that does not take one parameter is reported when `filter` or `sortby` runs, as in `filter(a, iif)`.
 
-- `f(x)=(x/2)<<2` -> error `bitwise operands must be integer values` (dummy gives `(1/2)<<2`, a float on the left of `<<`).
-- `f(x,y)=x%(y-1)` -> error `incompatible operands` (dummy gives `1%0`).
+These are reported on the real call, including when the failing value is a constant: an index or slice that is out of range, indexing a value that is not an array, bitwise or modulo rules, incompatible operands, numeric and domain errors, mixed time values, and scalar, integer, or range checks.
 
-Set **`_`** before the definition so the check uses a better dummy, e.g. **`_=2`**:
-
-- `_=2; f(x)=(x/2)<<2` -> OK (`(2/2)<<2`).
-- `_=2; f(x,y)=x%(y-1)` -> OK (`2%(2-1)`).
-
-For a body that calls time converters on a parameter (for example `rd(t)=ratio(days(t))`), set **`_`** to a duration before the definition so validation sees a duration dummy:
-
-- `_=0:00; rd(t)=ratio(days(t)); rd(1h)` -> `1/24`.
+- `rd(t)=ratio(days(t)); rd(1h)` -> `1/24`.
+- `f(x)=(x/2)<<2` defines. `f(1)` -> error `bitwise operands must be integer values`. `f(2)` -> `4`.
+- `a=flat(10); f(n)=iif(n>=0, a[n], 0)` defines. `f(0)` -> `10`. `f(1)` -> error `array index is out of range`.
+- `f(n)=iif(1, flat(10)[1], 0)` defines. `f(0)` -> error `array index is out of range`.
+- `f(a,n)=iif(n>=0 && n<len(a), a[n], ())` defines. `f((10,20,30), 1)` -> `20`. `f((10,20,30), 5)` -> `()`.
 
 ### Comments
 
@@ -483,8 +479,10 @@ Quick index (alphabetical):
 | `hex(...)` | [Output Formatting](#output-formatting) |
 | `hours(t)` | [Time Conversion](#time-conversion) |
 | `hypot(x, y)` | [Power and Root](#power-and-root) |
+| `iif(condition, expr_if_true, expr_if_false)` | [Conditional](#conditional) |
 | `imag(value)` | [Complex Utilities](#complex-utilities) |
 | `int(value)` | [Numeric Utilities](#numeric-utilities) |
+| `isinstance(value, type)` | [Type tests](#type-tests) |
 | `lcm(a, b)` | [Numeric Utilities](#numeric-utilities) |
 | `len/length(x)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `ln(value)` | [Logarithmic and Exponential](#logarithmic-and-exponential) |
@@ -828,6 +826,50 @@ Purpose: random values.
   - `rand()` -> random value in `[0,1)`
   - `random(10,20)` -> random value in `[10,20)`
   - `random(5,5)` -> `5`
+
+### Conditional
+
+Purpose: choose one expression and leave the other unevaluated.
+
+- Key functions:
+- `iif(condition, expr_if_true, expr_if_false)` returns the chosen branch unchanged (number, time, array, or `()`).
+
+The condition uses the same truth rule as `!`, `&&`, and `||`. False values are `0`, `-0`, `nan`, `0:00`, and `()`. `(0)` is the grouped scalar `0`, so it is false. Everything else is true, including `inf` and any non-empty array such as `(0,0)`. An array condition is one choice, not element-wise: `iif((1,0), 10, 20)` -> `10`.
+
+Both branches are syntax-checked (tokens, call shape, and argument count), including a lambda body in either branch. Only the selected branch runs, so `rand`, indexing, and domain checks in the other branch do not happen. `&&` and `||` still evaluate both sides; the guard belongs in `iif`.
+
+- `iif(1, 10, 20)` -> `10`
+- `iif(0, 10, (10,20,30))` -> `(10, 20, 30)`
+- `iif(1, 1:30, 0)` -> `01:30`
+- `iif(0, 1:30, ())` -> `()`
+- `iif(1, 2, (1,2)[9])` -> `2`
+- `iif(n>=0 && n<len(a), a[n], ())` evaluates `a[n]` only when `n` is inside `a`
+
+### Type tests
+
+Purpose: test the kind of one value. The result is either `1` or `0`, the same kind a comparison returns.
+
+- Key functions:
+- `isinstance(value, type)`
+
+`value` is any expression. `type` is a bare name: `int`, `float`, `time`, `complex`, `array` or `list`. Names are case-insensitive. `list` means the same as `array`. The first match wins:
+
+- an array, including `()` and a one-element array such as `flat(5)`, is `array` / `list`; `(5)` is grouping, so it is the scalar `5`
+- otherwise a value with a nonzero imaginary part is `complex`; `1+0i` is the real integer `1`; with complex support off, nothing is `complex`
+- otherwise a duration (`1:30`, `1h`, `minute`) is `time`; `milliseconds(1:30)` is `int` and `seconds(1:30)` is `float`; with time support off, the name `time` is still accepted and the result is `0`
+- otherwise an exact integer is `int`; that includes signed and unsigned integers, whole values the parser already stores as integers (`1.0`, `2.00`, `1e2`), and values such as `2**63`; `int(3.9)` is the truncation function, and its result is `int`; `isinstance(3.9, int)` is `0`
+- otherwise a scalar is `float` (`1.5`, `1e20`, `pi`, `nan`, `inf`)
+
+- `isinstance(1, int)` -> `1`
+- `isinstance(1.5, float)` -> `1`
+- `isinstance(1:30, time)` -> `1`
+- `isinstance(milliseconds(1:30), int)` -> `1`
+- `isinstance(flat(5), array)` -> `1`
+- `isinstance((5), array)` -> `0`
+- `isinstance((), list)` -> `1`
+- `isinstance((1, 2.5), array)` -> `1`
+- `float=1.5; isinstance(float, float)` -> `1`
+- `iif(isinstance(5, array), 5[0], 0)` -> `0`
 
 ## Advanced Numeric Behavior
 
