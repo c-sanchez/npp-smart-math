@@ -557,7 +557,8 @@ private function FormatRawComplexRenderBaseDisplay(byref s as RawScalar) as Stri
   if s.kind <> RSK_COMPLEX then return ""
   if RawComplexHasNaNComponent(s) then return SM_FMT_NAN
   dim reStr as String = Parser_FormatRawCartesianRenderBase(s.real, s.renderBase, s.renderUnsigned)
-  dim imagStr as String = Parser_FormatRawCartesianRenderBase(s.imag, s.renderBase, s.renderUnsigned)
+  '' Imaginary coefficient stays signed magnitude; unsigned applies to the real part only.
+  dim imagStr as String = Parser_FormatRawCartesianRenderBase(s.imag, s.renderBase, FALSE)
   if Len(reStr) = 0 orelse Len(imagStr) = 0 then return ""
   return AssembleComplexCartesianDisplay(reStr, imagStr, RawCartesianIsZeroForComplexReal(s.real), TRUE)
 end function
