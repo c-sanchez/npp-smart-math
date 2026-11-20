@@ -181,7 +181,7 @@ Notes:
   - `(1,2,3,4,5,6,7,8,9)[1:1]` -> `()` (empty)
   - Bounds and step must be integers; step must not be `0`
   - Inside `[...]`, `:` is slice syntax (not a time literal): `a[1:30]` slices from index 1 to 30
-- Assign one element by its index:
+- Set an element at a given index:
   - `a=(1,2,3); a[1]=10` -> `(1, 10, 3)` (the result is the updated array)
   - `a=(1,2,3); a[1]=()` -> `(1, 3)` (deletes the element)
   - `a=(1,2,3); a[1]=(10,20,30)` -> `(1, 10, 20, 30, 3)` (replaces element 1 with `10` and inserts the rest)
@@ -228,9 +228,11 @@ Notes:
   - `oct(12)` -> `0o14`
   - `bin(5,7)` -> `(0b101, 0b111)`
   - `uhex(-1)` -> `0xFFFFFFFFFFFFFFFF`
+  - `udec(-1)` -> `18446744073709551615`
 - Trailing formatter sugar after `;` is supported:
   - `0xAA; hex` -> `0xAA` (same as `0xAA; hex(ans)`)
   - `(8,9,10); oct` -> `(0o10, 0o11, 0o12)` (same as `(8,9,10); oct(ans)`)
+  - `-10; udec` -> `18446744073709551606`
 
 ### User-Defined Functions
 
@@ -254,10 +256,20 @@ Notes:
   - Wrapped form: `f=(x:1/x)`, `f=(x):1/x`, or nested `f=((x):(1/x))`
   - Zero parameters: `f=():42` then call `f()`
 - Reserved names cannot be used for function names:
-  - `hex(x)=x` -> error (`reserved function name`)
-  - `e(x)=x` -> error (`reserved constant name`)
-  - `ans(x)=x` -> error (`reserved built-in variable name`). `ans` is the last-result variable.
-  - `nan=1` -> error (`reserved constant name`)
+  - `hex(x)=x` -> error (`reserved function name: hex`)
+  - `e(x)=x` -> error (`reserved constant name: e`)
+  - `ans(x)=x` -> error (`reserved built-in variable name: ans`). `ans` is the last-result variable.
+  - `nan=1` -> error (`reserved constant name: nan`)
+- A parameter cannot be a reserved function name (including `and`, `or`, and `not`), a reserved constant, or `ans`. The same check applies to `f(x)=...`, `f=x:...`, and an anonymous `sortby` or `filter` lambda. A parameter may reuse a user-function name. In the body, the bare name is the parameter and `name(...)` is still that global function. A lambda sees the parameters of every function and lambda that encloses it. An inner parameter hides an outer parameter of the same name.
+  - `f(sin)=sin+1` -> error (`reserved function name can't be a param name: sin`)
+  - `f=sin:sin+1` -> error (`reserved function name can't be a param name: sin`)
+  - `sortby((1,2), sin: -sin)` -> error (`reserved function name can't be a param name: sin`)
+  - `f(e)=e+1` -> error (`reserved constant name: e`)
+  - `sortby((1,2), e: -e)` -> error (`reserved constant name: e`)
+  - `f(ans)=ans+1` -> error (`reserved built-in variable name: ans`)
+  - `g(x)=x*x; f(g)=g+g(g); f(3)` -> `12`
+  - `g(x)=x*x; f=g:filter((10,20,30), x: x<=g); f(20)` -> `(10, 20)`
+  - `f(x)=filter((10,20,30), x: x<x); f(100)` -> `()`
 - Recursive functions are not supported:
   - `f(x) = x*f(x-1)` -> error (`recursive function call`)
 - Inside a function or lambda body, `=` is a comparison and does not assign:
@@ -467,6 +479,7 @@ Quick index (alphabetical):
 | `cos(angle)` | [Trigonometric and Hyperbolic](#trigonometric-and-hyperbolic) |
 | `cosh(value)` | [Trigonometric and Hyperbolic](#trigonometric-and-hyperbolic) |
 | `days(t)` | [Time Conversion](#time-conversion) |
+| `dec(...)` | [Output Formatting](#output-formatting) |
 | `deg(...)` | [Trigonometric and Hyperbolic](#trigonometric-and-hyperbolic) |
 | `exp(value)` | [Logarithmic and Exponential](#logarithmic-and-exponential) |
 | `fact/factorial(n)` | [Numeric Utilities](#numeric-utilities) |
@@ -524,6 +537,7 @@ Quick index (alphabetical):
 | `tanh(value)` | [Trigonometric and Hyperbolic](#trigonometric-and-hyperbolic) |
 | `trunc(value)` | [Numeric Utilities](#numeric-utilities) |
 | `ubin(...)` | [Output Formatting](#output-formatting) |
+| `udec(...)` | [Output Formatting](#output-formatting) |
 | `uhex(...)` | [Output Formatting](#output-formatting) |
 | `unique(...)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `unpack(...)` | [Arrays and Aggregation](#arrays-and-aggregation) |
@@ -739,27 +753,34 @@ Notes:
 
 ### Output Formatting
 
-Purpose: render values in hex/oct/bin.
+Purpose: render values in hex/oct/bin/dec.
 
 - Key functions:
 - `hex(...)` - format output in hexadecimal
 - `oct(...)` - format output in octal
 - `bin(...)` - format output in binary
+- `dec(...)` - format output in decimal
 - `uhex(...)` - unsigned-style hexadecimal formatting
 - `uoct(...)` - unsigned-style octal formatting
 - `ubin(...)` - unsigned-style binary formatting
+- `udec(...)` - unsigned-style decimal formatting
 - Examples:
   - `hex(12)` -> `0xC`
   - `bin(5,11)` -> `(0b101, 0b1011)`
   - `uhex(-1)` -> `0xFFFFFFFFFFFFFFFF`
+  - `dec(-10)` -> `-10`
+  - `udec(-1)` -> `18446744073709551615`
   - `170; hex` -> `0xAA`
   - `(0x5,0x10); oct` -> `(0o5, 0o20)`
   - `0xFFFFFFFF & ~0x123; uhex` -> `0xFFFFFEDC`
+  - `-10; udec` -> `18446744073709551606`
+  - `factorint(40); dec` -> `(8, 5)`
 
 Notes:
 
 - Formatting functions require integer values.
-- `uhex/uoct/ubin` show unsigned 64-bit style for negatives.
+- There is no `0d` prefix (decimal is default).
+- `uhex/uoct/ubin/udec` show unsigned 64-bit style for negatives.
 
 ### Time Conversion
 
@@ -833,17 +854,15 @@ Purpose: choose one expression and leave the other unevaluated.
 
 - Key functions:
 - `iif(condition, expr_if_true, expr_if_false)` returns the chosen branch unchanged (number, time, array, or `()`).
-
-The condition uses the same truth rule as `!`, `&&`, and `||`. False values are `0`, `-0`, `nan`, `0:00`, and `()`. `(0)` is the grouped scalar `0`, so it is false. Everything else is true, including `inf` and any non-empty array such as `(0,0)`. An array condition is one choice, not element-wise: `iif((1,0), 10, 20)` -> `10`.
-
-Both branches are syntax-checked (tokens, call shape, and argument count), including a lambda body in either branch. Only the selected branch runs, so `rand`, indexing, and domain checks in the other branch do not happen. `&&` and `||` still evaluate both sides; the guard belongs in `iif`.
-
-- `iif(1, 10, 20)` -> `10`
-- `iif(0, 10, (10,20,30))` -> `(10, 20, 30)`
-- `iif(1, 1:30, 0)` -> `01:30`
-- `iif(0, 1:30, ())` -> `()`
-- `iif(1, 2, (1,2)[9])` -> `2`
-- `iif(n>=0 && n<len(a), a[n], ())` evaluates `a[n]` only when `n` is inside `a`
+  - The condition uses the same truth rule as `!`, `&&`, and `||`. False values are `0`, `-0`, `nan`, `0:00`, and `()`. `(0)` is the grouped scalar `0`, so it is false. Everything else is true, including `inf` and any non-empty array such as `(0,0)`. An array condition is one choice, not element-wise: `iif((1,0), 10, 20)` -> `10`.
+  - Both branches are syntax-checked (tokens, call shape, and argument count), including a lambda body in either branch. Only the selected branch runs, so `rand`, indexing, and domain checks in the other branch do not happen. `&&` and `||` still evaluate both sides; the guard belongs in `iif`.
+- Examples:
+  - `iif(1, 10, 20)` -> `10`
+  - `iif(0, 10, (10,20,30))` -> `(10, 20, 30)`
+  - `iif(1, 1:30, 0)` -> `01:30`
+  - `iif(0, 1:30, ())` -> `()`
+  - `iif(1, 2, (1,2)[9])` -> `2`
+  - `iif(n>=0 && n<len(a), a[n], ())` evaluates `a[n]` only when `n` is inside `a`
 
 ### Type tests
 
@@ -851,25 +870,24 @@ Purpose: test the kind of one value. The result is either `1` or `0`, the same k
 
 - Key functions:
 - `isinstance(value, type)`
-
-`value` is any expression. `type` is a bare name: `int`, `float`, `time`, `complex`, `array` or `list`. Names are case-insensitive. `list` means the same as `array`. The first match wins:
-
-- an array, including `()` and a one-element array such as `flat(5)`, is `array` / `list`; `(5)` is grouping, so it is the scalar `5`
-- otherwise a value with a nonzero imaginary part is `complex`; `1+0i` is the real integer `1`; with complex support off, nothing is `complex`
-- otherwise a duration (`1:30`, `1h`, `minute`) is `time`; `milliseconds(1:30)` is `int` and `seconds(1:30)` is `float`; with time support off, the name `time` is still accepted and the result is `0`
-- otherwise an exact integer is `int`; that includes signed and unsigned integers, whole values the parser already stores as integers (`1.0`, `2.00`, `1e2`), and values such as `2**63`; `int(3.9)` is the truncation function, and its result is `int`; `isinstance(3.9, int)` is `0`
-- otherwise a scalar is `float` (`1.5`, `1e20`, `pi`, `nan`, `inf`)
-
-- `isinstance(1, int)` -> `1`
-- `isinstance(1.5, float)` -> `1`
-- `isinstance(1:30, time)` -> `1`
-- `isinstance(milliseconds(1:30), int)` -> `1`
-- `isinstance(flat(5), array)` -> `1`
-- `isinstance((5), array)` -> `0`
-- `isinstance((), list)` -> `1`
-- `isinstance((1, 2.5), array)` -> `1`
-- `float=1.5; isinstance(float, float)` -> `1`
-- `iif(isinstance(5, array), 5[0], 0)` -> `0`
+  - `value` is any expression.
+  - `type` is a bare name: `int`, `float`, `time`, `complex`, `array` or `list`. Names are case-insensitive. `list` means the same as `array`. The first match wins:
+    - an array, including `()` and a one-element array such as `flat(5)`, is `array` / `list`; `(5)` is grouping, so it is the scalar `5`
+    - otherwise a value with a nonzero imaginary part is `complex`; `1+0i` is the real integer `1`; with complex support off, nothing is `complex`
+    - otherwise a duration (`1:30`, `1h`, `minute`) is `time`; `milliseconds(1:30)` is `int` and `seconds(1:30)` is `float`; with time support off, the name `time` is still accepted and the result is `0`
+    - otherwise an exact integer is `int`; that includes signed and unsigned integers, whole values the parser already stores as integers (`1.0`, `2.00`, `1e2`), and values such as `2**63`; `int(3.9)` is the truncation function, and its result is `int`; `isinstance(3.9, int)` is `0`
+    - otherwise a scalar is `float` (`1.5`, `1e20`, `pi`, `nan`, `inf`)
+- Examples:
+  - `isinstance(1, int)` -> `1`
+  - `isinstance(1.5, float)` -> `1`
+  - `isinstance(1:30, time)` -> `1`
+  - `isinstance(milliseconds(1:30), int)` -> `1`
+  - `isinstance(flat(5), array)` -> `1`
+  - `isinstance((5), array)` -> `0`
+  - `isinstance((), list)` -> `1`
+  - `isinstance((1, 2.5), array)` -> `1`
+  - `float=1.5; isinstance(float, float)` -> `1`
+  - `iif(isinstance(5, array), 5[0], 0)` -> `0`
 
 ## Advanced Numeric Behavior
 

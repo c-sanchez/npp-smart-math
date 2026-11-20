@@ -113,6 +113,11 @@
 				<Param name="t" />
 			</Overload>
 		</KeyWord>
+		<KeyWord name="dec" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
 		<KeyWord name="deg" func="yes">
 			<Overload retVal="" >
 				<Param name="..." />
@@ -458,6 +463,11 @@
 			</Overload>
 		</KeyWord>
 		<KeyWord name="ubin" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="udec" func="yes">
 			<Overload retVal="" >
 				<Param name="..." />
 			</Overload>
