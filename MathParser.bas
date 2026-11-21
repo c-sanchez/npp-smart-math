@@ -8314,7 +8314,99 @@ private function ScalarValuesEqualForCompare(byref a as ScalarValue, byref b as 
   return (cmp = 0)
 end function
 
-private function CompareEvalValues(byref leftV as EvalValue, byref rightV as EvalValue, byref cmp as Integer) as Boolean
+'' IEEE unordered NaN for comparison ops (not sort): time values skip this check.
+private function ScalarPairHasUnorderedNan(byref a as ScalarValue, byref b as ScalarValue) as Boolean
+  if ScalarIsTime(a) orelse ScalarIsTime(b) then return FALSE
+  if Parser_SupportComplexNumbers then
+    dim ar as Double, ai as Double, br as Double, bi as Double
+    ScalarLoadCartesian(a, ar, ai)
+    ScalarLoadCartesian(b, br, bi)
+    return IsNaNValue(ar) orelse IsNaNValue(ai) orelse IsNaNValue(br) orelse IsNaNValue(bi)
+  end if
+  return IsNaNValue(a.scalar) orelse IsNaNValue(b.scalar)
+end function
+
+'' Three-way compare with sort()'s NaN-first total order (real path).
+private function CmpScalarValuesForSortOrder(byref sa as ScalarValue, byref sb as ScalarValue, byref cmp as Integer) as Boolean
+  dim ta as Boolean = ScalarIsTime(sa)
+  dim tb as Boolean = ScalarIsTime(sb)
+  dim ha as Boolean = Parser_SupportComplexNumbers andalso ScalarHasNonzeroImaginaryPart(sa)
+  dim hb as Boolean = Parser_SupportComplexNumbers andalso ScalarHasNonzeroImaginaryPart(sb)
+  if (ha orelse hb) andalso (ta orelse tb) then
+    return FALSE
+  end if
+
+  if ta orelse tb then
+    dim lm as LongInt
+    dim rm as LongInt
+    if ta then
+      lm = TimeTotalMsFromScalarValue(sa)
+    elseif ScalarToSecondsMsForTimeOp(sa, lm) = FALSE then
+      lm = 0
+    end if
+    if tb then
+      rm = TimeTotalMsFromScalarValue(sb)
+    elseif ScalarToSecondsMsForTimeOp(sb, rm) = FALSE then
+      rm = 0
+    end if
+    if lm < rm then
+      cmp = -1
+    elseif lm > rm then
+      cmp = 1
+    else
+      cmp = 0
+    end if
+    return TRUE
+  end if
+
+  if ha orelse hb then
+    dim ar as Double, ai as Double, br as Double, bi as Double
+    ScalarLoadCartesian(sa, ar, ai)
+    ScalarLoadCartesian(sb, br, bi)
+    if IsNaNValue(ar) orelse IsNaNValue(ai) orelse IsNaNValue(br) orelse IsNaNValue(bi) then
+      cmp = 1
+      return TRUE
+    end if
+    if ar < br then
+      cmp = -1
+    elseif ar > br then
+      cmp = 1
+    elseif ai < bi then
+      cmp = -1
+    elseif ai > bi then
+      cmp = 1
+    else
+      cmp = 0
+    end if
+    return TRUE
+  end if
+
+  dim aNan as Boolean = IsNaNValue(sa.scalar)
+  dim bNan as Boolean = IsNaNValue(sb.scalar)
+  if aNan then
+    if bNan then
+      cmp = 0
+    else
+      cmp = -1
+    end if
+    return TRUE
+  end if
+  if bNan then
+    cmp = 1
+    return TRUE
+  end if
+
+  if sa.scalar < sb.scalar then
+    cmp = -1
+  elseif sa.scalar > sb.scalar then
+    cmp = 1
+  else
+    cmp = 0
+  end if
+  return TRUE
+end function
+
+private function CompareEvalValuesEx(byref leftV as EvalValue, byref rightV as EvalValue, byref cmp as Integer, byval forSortOrder as Boolean) as Boolean
   if Parser_SupportComplexNumbers = FALSE then
     if EvalValueHasNonzeroImaginary(leftV) orelse EvalValueHasNonzeroImaginary(rightV) then
       return FALSE
@@ -8351,8 +8443,14 @@ private function CompareEvalValues(byref leftV as EvalValue, byref rightV as Eva
     else
       rsv = rightV.arr(lbound(rightV.arr) + i)
     end if
-    if CmpScalarValuesForCompare(lsv, rsv, c) = FALSE then
-      return FALSE
+    if forSortOrder then
+      if CmpScalarValuesForSortOrder(lsv, rsv, c) = FALSE then
+        return FALSE
+      end if
+    else
+      if CmpScalarValuesForCompare(lsv, rsv, c) = FALSE then
+        return FALSE
+      end if
     end if
     if c <> 0 then
       cmp = c
@@ -8368,6 +8466,28 @@ private function CompareEvalValues(byref leftV as EvalValue, byref rightV as Eva
     cmp = 0
   end if
   return TRUE
+end function
+
+private function CompareEvalValues(byref leftV as EvalValue, byref rightV as EvalValue, byref cmp as Integer) as Boolean
+  return CompareEvalValuesEx(leftV, rightV, cmp, FALSE)
+end function
+
+private function ComparisonOpIsTrue(byval op as OperatorCmpNameId, byval cmp as Integer) as Boolean
+  select case op
+    case OP_CMP_EQ
+      return (cmp = 0)
+    case OP_CMP_NE
+      return (cmp <> 0)
+    case OP_CMP_LT
+      return (cmp < 0)
+    case OP_CMP_LE
+      return (cmp <= 0)
+    case OP_CMP_GT
+      return (cmp > 0)
+    case OP_CMP_GE
+      return (cmp >= 0)
+  end select
+  return FALSE
 end function
 
 private function ApplyComparison(byref leftV as EvalValue, byref rightV as EvalValue, byval op as OperatorCmpNameId, byref outV as EvalValue) as Boolean
@@ -8398,56 +8518,83 @@ private function ApplyComparison(byref leftV as EvalValue, byref rightV as EvalV
       end if
     end if
   end if
-  '' IEEE: any scalar NaN makes comparisons unordered - only ``!=`` / ``<>`` is true.
-  if leftV.kind = VK_SCALAR andalso rightV.kind = VK_SCALAR then
-    if Parser_SupportComplexNumbers then
-      dim lr as Double, li as Double, rr as Double, ri as Double
-      ScalarLoadCartesian(leftV.scalarValue, lr, li)
-      ScalarLoadCartesian(rightV.scalarValue, rr, ri)
-      if IsNaNValue(lr) orelse IsNaNValue(li) orelse IsNaNValue(rr) orelse IsNaNValue(ri) then
-        select case op
-        case OP_CMP_NONE
-          return FALSE
-        case OP_CMP_NE
-          ValueSetInt64(outV, 1)
-        case else
-          ValueSetInt64(outV, 0)
-        end select
-        return TRUE
-      end if
-    else
-      if IsNaNValue(leftV.scalar) orelse IsNaNValue(rightV.scalar) then
-        select case op
-        case OP_CMP_NONE
-          return FALSE
-        case OP_CMP_NE
-          ValueSetInt64(outV, 1)
-        case else
-          ValueSetInt64(outV, 0)
-        end select
-        return TRUE
-      end if
+
+  '' IEEE: NaN in a compared element (scalar or array) makes the compare unordered -
+  '' only ``!=`` / ``<>`` is true. Walk item-by-item like CompareEvalValues.
+  dim na as Integer
+  dim nb as Integer
+  if leftV.kind = VK_SCALAR then
+    na = 1
+  else
+    na = ValueArrayLen(leftV)
+  end if
+  if rightV.kind = VK_SCALAR then
+    nb = 1
+  else
+    nb = ValueArrayLen(rightV)
+  end if
+  if Parser_SupportComplexNumbers = FALSE then
+    if EvalValueHasNonzeroImaginary(leftV) orelse EvalValueHasNonzeroImaginary(rightV) then
+      return FALSE
     end if
   end if
 
-  dim cmp as Integer = 0
-  if CompareEvalValues(leftV, rightV, cmp) = FALSE then return FALSE
+  dim minLen as Integer = IIf(na < nb, na, nb)
+  dim i as Integer
+  dim lsv as ScalarValue
+  dim rsv as ScalarValue
+  dim c as Integer
   dim isTrue as Boolean = FALSE
-  select case op
-    case OP_CMP_EQ
-      isTrue = (cmp = 0)
-    case OP_CMP_NE
-      isTrue = (cmp <> 0)
-    case OP_CMP_LT
-      isTrue = (cmp < 0)
-    case OP_CMP_LE
-      isTrue = (cmp <= 0)
-    case OP_CMP_GT
-      isTrue = (cmp > 0)
-    case OP_CMP_GE
-      isTrue = (cmp >= 0)
-    case else
+
+  for i = 0 to minLen - 1
+    if leftV.kind = VK_SCALAR then
+      lsv = leftV.scalarValue
+    else
+      lsv = leftV.arr(lbound(leftV.arr) + i)
+    end if
+    if rightV.kind = VK_SCALAR then
+      rsv = rightV.scalarValue
+    else
+      rsv = rightV.arr(lbound(rightV.arr) + i)
+    end if
+    if ScalarPairHasUnorderedNan(lsv, rsv) then
+      select case op
+      case OP_CMP_NONE
+        return FALSE
+      case OP_CMP_NE
+        ValueSetInt64(outV, 1)
+      case else
+        ValueSetInt64(outV, 0)
+      end select
+      return TRUE
+    end if
+    if CmpScalarValuesForCompare(lsv, rsv, c) = FALSE then
       return FALSE
+    end if
+    if c <> 0 then
+      isTrue = ComparisonOpIsTrue(op, c)
+      if isTrue then
+        ValueSetInt64(outV, 1)
+      else
+        ValueSetInt64(outV, 0)
+      end if
+      return TRUE
+    end if
+  next i
+
+  dim cmp as Integer = 0
+  if na < nb then
+    cmp = -1
+  elseif na > nb then
+    cmp = 1
+  else
+    cmp = 0
+  end if
+  select case op
+  case OP_CMP_NONE
+    return FALSE
+  case else
+    isTrue = ComparisonOpIsTrue(op, cmp)
   end select
   if isTrue then
     ValueSetInt64(outV, 1)
@@ -10059,7 +10206,7 @@ private function SortbyStableSortIndicesFromEvalKeys(sortKeys() as EvalValue, or
     j = i
     do while j > 0
       dim cmp as Integer
-      if CompareEvalValues(sortKeys(orderIdx(j)), sortKeys(orderIdx(j - 1)), cmp) = FALSE then
+      if CompareEvalValuesEx(sortKeys(orderIdx(j)), sortKeys(orderIdx(j - 1)), cmp, TRUE) = FALSE then
         SetParseErrorById(PARSE_ERR_INCOMPATIBLE_OPERANDS)
         return FALSE
       end if

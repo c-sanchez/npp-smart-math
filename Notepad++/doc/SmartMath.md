@@ -200,6 +200,9 @@ Notes:
   - `upd((10,20,30), 0, 111)` -> `(111, 20, 30)`
   - `upd((10,20,30), 1, ())` -> `(10, 30)`
   - `upd((10,20,30), 3, 111)` -> `array index is out of range`
+  - `in(a,x) = !!filter(a, t: t==x)`
+  - `in((1,2,3), 3)` -> `1`
+  - `in((1,2,3), 5)` -> `0`
 
 ### Variables and `ans`
 
@@ -447,6 +450,8 @@ Recommendation: parenthesize when using `not` in complex expressions.
   - Example: `(1,2,0) >= (1,2)` -> `1` because the values are equal until the end of the 2nd array.
   - Example: `(1,2) == sort(2,1)` -> `1` because the arrays are equal after sorting.
   - Example: `() == ()` -> `1`, and `() == 0` -> `0`, because an empty array has length 0.
+- If a compared element is `nan` (including a one-element array from `flat(nan)`), the whole comparison is unordered, same as scalar `nan`: only `!=` / `<>` is true.
+  - Example: `flat(nan) == nan` -> `0`, and `(1,nan) != (1,nan)` -> `1`.
 
 ### Chained Comparisons Warning
 
@@ -719,6 +724,7 @@ Purpose: aggregate and transform values/lists.
   - `sort(3,1,2)` -> `(1, 2, 3)`
   - `sort(nan,inf,2,-inf,nan,-2)` -> `(NaN, NaN, -Inf, -2, 2, Inf)`
   - `sortby((-3,-1,2), abs)` -> `(-1, 2, -3)` (stable on equal keys)
+  - `f(x)=x; sortby((nan,2,1), f)` -> `(nan, 1, 2)` (NaN keys sort first, same as `sort`)
   - `sortby((2,1), polar)` -> `(1, 2)` (tuple keys `(r, angle)`, lexicographic order)
   - `f(x)=x*(10,20); sortby((3,1,2), f)` -> `(1, 2, 3)`
   - `f(x)=1/x; sortby((1,-1,-2,0,2), f)` -> `(-1, -2, 2, 1, 0)`
@@ -921,6 +927,7 @@ Advanced examples:
 
 - `nan == nan` evaluates to `0` (IEEE unordered: NaN is not equal to any value, including another NaN).
 - `nan != nan` is `1`.
+- The same unordered rule applies when a compared array element is `nan`: `flat(nan) == nan` -> `0`, `(1,nan) == (1,nan)` -> `0`, `(1,nan) != (1,nan)` -> `1`, and `flat(nan) < flat(1)` -> `0`.
 - `unique` keeps only the first NaN. Later `nan` and `-nan` values are dropped.
 
 These behaviors may differ from other tools/languages.
