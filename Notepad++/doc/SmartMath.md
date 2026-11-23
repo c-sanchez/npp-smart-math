@@ -61,6 +61,13 @@ Base-prefixed integer forms:
 - `0b01110110011` - binary
 - `0o64` - octal
 
+Constants:
+
+- `pi` (3.141592653589793)
+- `e` (2.718281828459045)
+- `inf` (infinity)
+- `nan` (not a number)
+
 ### Percent Calculation
 
 - Use postfix percent for percentage math:
@@ -859,9 +866,9 @@ Purpose: random values.
 Purpose: choose one expression and leave the other unevaluated.
 
 - Key functions:
-- `iif(condition, expr_if_true, expr_if_false)` returns the chosen branch unchanged (number, time, array, or `()`).
+- `iif(condition, expr_if_true, expr_if_false)` evaluates either `expr_if_true` or `expr_if_false`, depending on `condition`.
   - The condition uses the same truth rule as `!`, `&&`, and `||`. False values are `0`, `-0`, `nan`, `0:00`, and `()`. `(0)` is the grouped scalar `0`, so it is false. Everything else is true, including `inf` and any non-empty array such as `(0,0)`. An array condition is one choice, not element-wise: `iif((1,0), 10, 20)` -> `10`.
-  - Both branches are syntax-checked (tokens, call shape, and argument count), including a lambda body in either branch. Only the selected branch runs, so `rand`, indexing, and domain checks in the other branch do not happen. `&&` and `||` still evaluate both sides; the guard belongs in `iif`.
+  - Both expressions are syntax-checked (tokens, call shape, and argument count), including a lambda body in either branch. Only the selected branch runs, so `rand`, indexing, and domain checks in the other branch do not happen. `&&` and `||` still evaluate both sides; the guard belongs in `iif`.
 - Examples:
   - `iif(1, 10, 20)` -> `10`
   - `iif(0, 10, (10,20,30))` -> `(10, 20, 30)`
