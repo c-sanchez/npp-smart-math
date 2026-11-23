@@ -899,8 +899,7 @@ Purpose: test the kind of one value. The result is either `1` or `0`, the same k
   - `isinstance((5), array)` -> `0`
   - `isinstance((), list)` -> `1`
   - `isinstance((1, 2.5), array)` -> `1`
-  - `float=1.5; isinstance(float, float)` -> `1`
-  - `iif(isinstance(5, array), 5[0], 0)` -> `0`
+  - `x=5; iif(isinstance(x, array) && len(x)==1, x[0], x)` -> `5`
 
 ## Advanced Numeric Behavior
 
