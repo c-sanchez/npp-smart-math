@@ -61,11 +61,20 @@ Base-prefixed integer forms:
 - `0b01110110011` - binary
 - `0o64` - octal
 
+Constants:
+
+- `pi` (3.141592653589793)
+- `e` (2.718281828459045)
+- `inf` (infinity)
+- `nan` (not a number)
+
 ### Percent Calculation
 
 - Use postfix percent for percentage math:
   - `200 + 15%` -> `230`
   - `200 - 15%` -> `170`
+  - `(2,3,7) + 10%` -> `(2.2, 3.3, 7.7)`
+  - `1:00 - 20%` -> `00:48`
 
 ### Time Values
 
@@ -122,7 +131,7 @@ A **duration** (time value) is kept in whole milliseconds. Results print with co
 - `(1:45, 2)` -> `time values cannot be mixed with non-time values`.
 
 **Not allowed with durations** (typical errors: `incompatible operands`, or text with `expects a time value`):
-- postfix `%`;
+- postfix `%` (`1:00%` -> `incompatible operands`);
 - `sin`, `hex`, `pow`, and similar on a duration;
 - `1:00*1:00` (a duration multiplied by a duration);
 - `1/1:00` (a number divided by a duration);
@@ -146,7 +155,8 @@ Notes:
 - `1/2i` means `1/(2i)`, unlike `(1/2)i` and `1/2*i`;
 - `2**7i` means `2**(7i)`, unlike `(2**7)i` and `2**7*i`;
 - `(1+2)i` means `((1+2)i)`;
-- `func(1+2)i` means `(func(1+2)i)`.
+- `func(1+2)i` means `(func(1+2)i)`;
+- `(2,3)i` means `(2i, 3i)`.
 
 ### Arrays
 
@@ -155,11 +165,16 @@ Notes:
 - A single value in parentheses without commas is not an array; it’s just grouping:
   - `(5)` behaves like scalar `5`
   - `((5))` also behaves like scalar `5` (still just grouping)
+  - `flat(5)` is an array of one element
 - Use element-wise math:
   - `(1,2,3)*10` -> `(10, 20, 30)`
   - `6/(10,20,30)` -> `(0.6, 0.3, 0.2)`
   - `(1,2,3)+(10,20,30)` -> `(11, 22, 33)`
   - `2**(3,5,6)` -> `(8, 32, 64)`
+- An empty array has no elements. Element-wise math returns `()`:
+  - `sin(())` -> `()`
+  - `()+1` -> `()`
+  - `()+(1,2)` -> error (`incompatible operands`)
 - Index arrays with `[index]`:
   - `(10,20,30)[0]` -> `10` (first element)
   - `(10,20,30)[-1]` -> `30` (last element)
@@ -173,12 +188,28 @@ Notes:
   - `(1,2,3,4,5,6,7,8,9)[1:1]` -> `()` (empty)
   - Bounds and step must be integers; step must not be `0`
   - Inside `[...]`, `:` is slice syntax (not a time literal): `a[1:30]` slices from index 1 to 30
+- Set an element at a given index:
+  - `a=(1,2,3); a[1]=10` -> `(1, 10, 3)` (the result is the updated array)
+  - `a=(1,2,3); a[1]=()` -> `(1, 3)` (deletes the element)
+  - `a=(1,2,3); a[1]=(10,20,30)` -> `(1, 10, 20, 30, 3)` (replaces element 1 with `10` and inserts the rest)
+  - `5[0]=10` -> error (`indexing requires an array value`)
+  - `a[0:1]=10` -> error (`cannot assign to an array slice`)
+  - `a=(1,2,3); a[1] = 1:30` -> error (`time values cannot be mixed with non-time values`)
 - Pass array to functions:
   - `sqrt((9,25,36))` -> `(3, 5, 6)`
   - `pow((3,2), 4)` -> `(81, 16)`
   - `sin((pi/4,pi/2))` -> `(0.707107, 1)`
 - Use array utilities:
   - `reverse((1,2,3),(4,5))` -> `(5, 4, 3, 2, 1)`
+- Define functions for arrays:
+  - `check_index(a,n) = filter(n, t: t>=0 && t<len(a))[0]`
+  - `upd(a,n,x) = check_index(a,n)*0 + (a[0:n], x, a[n+1:])`
+  - `upd((10,20,30), 0, 111)` -> `(111, 20, 30)`
+  - `upd((10,20,30), 1, ())` -> `(10, 30)`
+  - `upd((10,20,30), 3, 111)` -> `array index is out of range`
+  - `in(a,x) = !!filter(a, t: t==x)`
+  - `in((1,2,3), 3)` -> `1`
+  - `in((1,2,3), 5)` -> `0`
 
 ### Variables and `ans`
 
@@ -207,9 +238,11 @@ Notes:
   - `oct(12)` -> `0o14`
   - `bin(5,7)` -> `(0b101, 0b111)`
   - `uhex(-1)` -> `0xFFFFFFFFFFFFFFFF`
+  - `udec(-1)` -> `18446744073709551615`
 - Trailing formatter sugar after `;` is supported:
   - `0xAA; hex` -> `0xAA` (same as `0xAA; hex(ans)`)
   - `(8,9,10); oct` -> `(0o10, 0o11, 0o12)` (same as `(8,9,10); oct(ans)`)
+  - `-10; udec` -> `18446744073709551606`
 
 ### User-Defined Functions
 
@@ -233,11 +266,26 @@ Notes:
   - Wrapped form: `f=(x:1/x)`, `f=(x):1/x`, or nested `f=((x):(1/x))`
   - Zero parameters: `f=():42` then call `f()`
 - Reserved names cannot be used for function names:
-  - `hex(x)=x` -> error (`reserved function name`)
-  - `e(x)=x` -> error (`reserved constant name`)
-  - `ans(x)=x` or `_(x)=x` -> error (`reserved built-in variable name`) - these names are reserved for the last-result variable `ans` and the formal-validation probe variable `_` (see below)
-  - `nan=1` -> error (`reserved constant name`)
-- Recursive functions are not supported.
+  - `hex(x)=x` -> error (`reserved function name: hex`)
+  - `e(x)=x` -> error (`reserved constant name: e`)
+  - `ans(x)=x` -> error (`reserved built-in variable name: ans`). `ans` is the last-result variable.
+  - `nan=1` -> error (`reserved constant name: nan`)
+- A parameter cannot be a reserved function name (including `and`, `or`, and `not`), a reserved constant, or `ans`. The same check applies to `f(x)=...`, `f=x:...`, and an anonymous `sortby` or `filter` lambda. A parameter may reuse a user-function name. In the body, the bare name is the parameter and `name(...)` is still that global function. A lambda sees the parameters of every function and lambda that encloses it. An inner parameter hides an outer parameter of the same name.
+  - `f(sin)=sin+1` -> error (`reserved function name can't be a param name: sin`)
+  - `f=sin:sin+1` -> error (`reserved function name can't be a param name: sin`)
+  - `sortby((1,2), sin: -sin)` -> error (`reserved function name can't be a param name: sin`)
+  - `f(e)=e+1` -> error (`reserved constant name: e`)
+  - `sortby((1,2), e: -e)` -> error (`reserved constant name: e`)
+  - `f(ans)=ans+1` -> error (`reserved built-in variable name: ans`)
+  - `g(x)=x*x; f(g)=g+g(g); f(3)` -> `12`
+  - `g(x)=x*x; f=g:filter((10,20,30), x: x<=g); f(20)` -> `(10, 20)`
+  - `f(x)=filter((10,20,30), x: x<x); f(100)` -> `()`
+- Recursive functions are not supported:
+  - `f(x) = x*f(x-1)` -> error (`recursive function call`)
+- Inside a function or lambda body, `=` is a comparison and does not assign:
+  - `v=(1,2,3); f(a)=a[0]=9; f(v)` -> `0`, and `v` stays `(1, 2, 3)`
+  - `b=0; f()=b=1; f()` -> `0`, and `b` stays `0`
+  - `filter((1,2,3), t: t=1)` -> `(1)`.
 
 #### Late Binding of Referenced Functions
 
@@ -252,21 +300,17 @@ Notes:
 
 #### User-Defined Functions Validation
 
-When you define a function, the body is evaluated once with **dummy** arguments so obvious errors are caught early. Every parameter is replaced by the scalar variable **`_`** with the default value of **`1`**. Real calls still use the arguments you pass.
+Defining a function syntax-checks the whole body. It does not run the body, so a constant that would fail at run time does not reject the definition, and calls such as `rand` do not run at definition time. Parameter names are known names during that check.
 
-With the default **`_` = `1`**, validation can fail even when the function would work for other inputs:
+A direct call with a bad token, a bad bracket, or the wrong number of arguments rejects the definition. That includes a call in either branch of `iif`. A `filter` or `sortby` lambda body is syntax-checked when the lambda is parsed, so a bad token, a bad bracket, or a wrong call arity inside the lambda also rejects the definition. An empty body, a direct recursive call, or a reserved or duplicate name still rejects the definition. An unknown name that is not a bare built-in stays late-bound and does not reject the definition. `filter` or `sortby` with a function that does not take one parameter is reported when `filter` or `sortby` runs, as in `filter(a, iif)`.
 
-- `f(x)=(x/2)<<2` -> error `bitwise operands must be integer values` (dummy gives `(1/2)<<2`, a float on the left of `<<`).
-- `f(x,y)=x%(y-1)` -> error `incompatible operands` (dummy gives `1%0`).
+These are reported on the real call, including when the failing value is a constant: an index or slice that is out of range, indexing a value that is not an array, bitwise or modulo rules, incompatible operands, numeric and domain errors, mixed time values, and scalar, integer, or range checks.
 
-Set **`_`** before the definition so the check uses a better dummy, e.g. **`_=2`**:
-
-- `_=2; f(x)=(x/2)<<2` -> OK (`(2/2)<<2`).
-- `_=2; f(x,y)=x%(y-1)` -> OK (`2%(2-1)`).
-
-For a body that calls time converters on a parameter (for example `rd(t)=ratio(days(t))`), set **`_`** to a duration before the definition so validation sees a duration dummy:
-
-- `_=0:00; rd(t)=ratio(days(t)); rd(1h)` -> `1/24`.
+- `rd(t)=ratio(days(t)); rd(1h)` -> `1/24`.
+- `f(x)=(x/2)<<2` defines. `f(1)` -> error `bitwise operands must be integer values`. `f(2)` -> `4`.
+- `a=flat(10); f(n)=iif(n>=0, a[n], 0)` defines. `f(0)` -> `10`. `f(1)` -> error `array index is out of range`.
+- `f(n)=iif(1, flat(10)[1], 0)` defines. `f(0)` -> error `array index is out of range`.
+- `f(a,n)=iif(n>=0 && n<len(a), a[n], ())` defines. `f((10,20,30), 1)` -> `20`. `f((10,20,30), 5)` -> `()`.
 
 ### Comments
 
@@ -303,7 +347,7 @@ Examples:
 **Not** applicable:
 - Exponent
 - Bitwise operations
-- Postfix percent
+- Postfix percent (`1:00%` -> `incompatible operands`; `1:00 + 10%` -> `01:06`)
 
 #### Complex Number Operators
 
@@ -316,23 +360,24 @@ Examples:
 
 **Not** applicable:
 - Bitwise operations
-- Postfix percent
+- Postfix percent (`(5+7i)%` -> `incompatible operands`; `(5+7i) + 10%` -> `5.5+7.7i`)
 
 ### Precedence (High -> Low)
 
-1. `**` (power)
-2. unary `+`, `-`, `~`, `!`
-3. postfix `%` (percentage form `x%`)
-4. `*`, `/`, `%` (modulo `x % y`)
-5. `+`, `-`
-6. `<<`, `>>` (bitwise shift)
-7. `&` (bitwise and)
-8. `^` (bitwise xor)
-9. `|` (bitwise or)
-10. `=`, `==`, `<>`, `!=`, `>`, `>=`, `<`, `<=`
-11. `not` (logical not)
-12. `&&`, `and` (logical and)
-13. `||`, `or` (logical or)
+1. `[]` (indexing and slicing), then `i` (tight imaginary suffix)
+2. `**` (power)
+3. unary `+`, `-`, `~`, `!`
+4. postfix `%` (percentage form `x%`)
+5. `*`, `/`, `%` (modulo `x % y`)
+6. `+`, `-`
+7. `<<`, `>>` (bitwise shift)
+8. `&` (bitwise and)
+9. `^` (bitwise xor)
+10. `|` (bitwise or)
+11. `=`, `==`, `<>`, `!=`, `>`, `>=`, `<`, `<=`
+12. `not` (logical not)
+13. `&&`, `and` (logical and)
+14. `||`, `or` (logical or)
 
 Use parentheses to make intent explicit.
 
@@ -349,6 +394,10 @@ Examples:
 - `5=5` -> comparison (`1`)
 - `(x)=(x)` -> comparison
 - `x+y=x` -> comparison
+- `a=(1,2,3); a[1]=10` -> element assignment, result `(1, 10, 3)`
+- `(1,2,3)[1]=10` -> comparison, result `0`
+- `a[1]==10` -> comparison
+- `b=a[1]=2` -> the same as `b=(a[1]==2)`
 
 Recommendation: use `==` for equality checks to avoid confusion.
 
@@ -361,8 +410,11 @@ Recommendation: use `==` for equality checks to avoid confusion.
 - Percentage math and precedence:
   - `5 + 2*3%` means `5 + (2*3%)` -> `5 + 0.06` -> `5.06`.
   - `5 + (2*3)%` means `5 + 6%` -> `5 + (5*0.06)` -> `5.3`.
+  - `2**3%` means `(2**3)%` -> `0.08`.
+  - `2%**3` means `(2%)**3` -> `0.000008`.
+  - `10+2**3%` means `10 + ((2**3)%)` -> `10.8` (the same percent-of-the-left rule as `200+15%`).
 - Tricky examples:
-  - `5 % -20` means `(5%) - 20` -> `0.05 - 20` -> `-19.5`.
+  - `5 % -20` means `(5%) - 20` -> `0.05 - 20` -> `-19.95`.
   - `-20 + 5%` means `-20 + (-20*0.05)` -> `-21`.
   - `5 % (-20)` means `mod(5, -20)` -> `5`.
 
@@ -375,6 +427,7 @@ Recommendation: use `==` for equality checks to avoid confusion.
 Logical note (scalar vs array):
 - `!x` / `not x` are logical NOT and always return a scalar (`1` or `0`).
 - Non-empty arrays are always treated as truthy in logical operators, so `!(0,0)`, as well as `not (0,0)`, evaluates to `0`.
+- An empty array is falsy, so `!()` and `not ()` evaluate to `1`, `() && 1` evaluates to `0`, and `() || 0` evaluates to `0`.
 - Precedence contrast (only in mixed expressions):
   - `!2==1` -> `0`
   - `not 2==1` -> `1`
@@ -386,7 +439,7 @@ Recommendation: parenthesize when using `not` in complex expressions.
 
 ### Arrays in Logical and Bitwise Operators (With Arrays)
 
-- `x && y` and `x || y` are logical and return a scalar (`1` or `0`). If an operand is a non-empty array, that operand is considered truthy.
+- `x && y` and `x || y` are logical and return a scalar (`1` or `0`). If an operand is a non-empty array, that operand is considered truthy. An empty array is falsy.
   - `(0,0) && 1` -> `1`
   - `0 || (0,0)` -> `1`
 - `x & y`, `x ^ y`, and `x | y` are bitwise and work element-wise:
@@ -403,6 +456,9 @@ Recommendation: parenthesize when using `not` in complex expressions.
   - Example: `(1,2,3) < (1,3)` -> `1` because the second item `2` < `3`.
   - Example: `(1,2,0) >= (1,2)` -> `1` because the values are equal until the end of the 2nd array.
   - Example: `(1,2) == sort(2,1)` -> `1` because the arrays are equal after sorting.
+  - Example: `() == ()` -> `1`, and `() == 0` -> `0`, because an empty array has length 0.
+- If a compared element is `nan` (including a one-element array from `flat(nan)`), the whole comparison is unordered, same as scalar `nan`: only `!=` / `<>` is true.
+  - Example: `flat(nan) == nan` -> `0`, and `(1,nan) != (1,nan)` -> `1`.
 
 ### Chained Comparisons Warning
 
@@ -435,10 +491,12 @@ Quick index (alphabetical):
 | `cos(angle)` | [Trigonometric and Hyperbolic](#trigonometric-and-hyperbolic) |
 | `cosh(value)` | [Trigonometric and Hyperbolic](#trigonometric-and-hyperbolic) |
 | `days(t)` | [Time Conversion](#time-conversion) |
+| `dec(...)` | [Output Formatting](#output-formatting) |
 | `deg(...)` | [Trigonometric and Hyperbolic](#trigonometric-and-hyperbolic) |
 | `exp(value)` | [Logarithmic and Exponential](#logarithmic-and-exponential) |
 | `fact/factorial(n)` | [Numeric Utilities](#numeric-utilities) |
 | `factorint(n)` | [Numeric Utilities](#numeric-utilities) |
+| `filter(array, func)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `flat(...)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `floor(value)` | [Numeric Utilities](#numeric-utilities) |
 | `frac/fract(value)` | [Numeric Utilities](#numeric-utilities) |
@@ -446,8 +504,10 @@ Quick index (alphabetical):
 | `hex(...)` | [Output Formatting](#output-formatting) |
 | `hours(t)` | [Time Conversion](#time-conversion) |
 | `hypot(x, y)` | [Power and Root](#power-and-root) |
+| `iif(condition, expr_if_true, expr_if_false)` | [Conditional](#conditional) |
 | `imag(value)` | [Complex Utilities](#complex-utilities) |
 | `int(value)` | [Numeric Utilities](#numeric-utilities) |
+| `isinstance(value, type)` | [Type tests](#type-tests) |
 | `lcm(a, b)` | [Numeric Utilities](#numeric-utilities) |
 | `len/length(x)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `ln(value)` | [Logarithmic and Exponential](#logarithmic-and-exponential) |
@@ -489,6 +549,7 @@ Quick index (alphabetical):
 | `tanh(value)` | [Trigonometric and Hyperbolic](#trigonometric-and-hyperbolic) |
 | `trunc(value)` | [Numeric Utilities](#numeric-utilities) |
 | `ubin(...)` | [Output Formatting](#output-formatting) |
+| `udec(...)` | [Output Formatting](#output-formatting) |
 | `uhex(...)` | [Output Formatting](#output-formatting) |
 | `unique(...)` | [Arrays and Aggregation](#arrays-and-aggregation) |
 | `unpack(...)` | [Arrays and Aggregation](#arrays-and-aggregation) |
@@ -566,6 +627,7 @@ Purpose: power (`**`) and root operations.
 - Examples:
   - `pow(27,1/3)` -> `3`
   - `2**63` -> `9223372036854775808`
+  - `2**range(1,7)` -> `(2, 4, 8, 16, 32, 64)`
   - `sqrt(25)` -> `5`
   - `hypot(3,4)` -> `5`
 
@@ -634,6 +696,7 @@ Purpose: show a plain numeric value as a reduced fraction when it is (or is clos
   - `ratio(0.5+0.25i)` -> `1/2+1/4*i`
 - Notes:
   - `nan` / `inf` pass through;
+  - values above `2**53` in magnitude are returned unchanged (for example `ratio(1e20)` -> `1e+020`);
   - duration arguments are rejected (`ratio(1:00)` -> `incompatible operands`);
   - non-exact values use the best reduced fraction `n/m` with `m <= 10_000_000` (for example `ratio(sqrt(2))` -> `13250218/9369319`);
   - exact decimal powers of ten may use a larger denominator (for example `ratio(7.73e-8)` -> `773/10000000000`).
@@ -653,6 +716,7 @@ Purpose: aggregate and transform values/lists.
 - `max(...)` - largest value
 - `sort(...)`, `sorted(...)` - sorted flattened values
 - `sortby(array, func)` - stable sort of `array` by `func(value)` per element
+- `filter(array, func)` - keep each element for which `func(element)` is truthy
 - `reverse(...)`, `reversed(...)` - reversed flattened values
 - `unique(...)` - first-occurrence unique values
 - `flat(...)` - concatenate scalars and arrays into one flat array
@@ -667,13 +731,17 @@ Purpose: aggregate and transform values/lists.
   - `sort(3,1,2)` -> `(1, 2, 3)`
   - `sort(nan,inf,2,-inf,nan,-2)` -> `(NaN, NaN, -Inf, -2, 2, Inf)`
   - `sortby((-3,-1,2), abs)` -> `(-1, 2, -3)` (stable on equal keys)
+  - `f(x)=x; sortby((nan,2,1), f)` -> `(nan, 1, 2)` (NaN keys sort first, same as `sort`)
   - `sortby((2,1), polar)` -> `(1, 2)` (tuple keys `(r, angle)`, lexicographic order)
   - `f(x)=x*(10,20); sortby((3,1,2), f)` -> `(1, 2, 3)`
   - `f(x)=1/x; sortby((1,-1,-2,0,2), f)` -> `(-1, -2, 2, 1, 0)`
   - `sortby((3,1,2), x:-x)` -> `(3, 2, 1)` (anonymous lambda key; parentheses optional around the lambda)
   - `sortby((1,2), (x):(1/x))` -> `(2, 1)` (parenthesized lambda body; keys `0.5`, `1`; ascending order)
   - `sortby((5,1), ():1)` -> error (`sortby expects a function that takes 1 parameter`; zero-parameter lambdas are not allowed as the sort key)
+  - `filter(range(1,11), x: x%3==0)` -> `(3, 6, 9)`
+  - `filter((1,0,inf,-10,nan), x: !!x)` -> `(1, inf, -10)` (`0` and `nan` are falsy)
   - `unique(3,1,3,2,1,2)` -> `(3, 1, 2)`
+  - `flat(5)` -> `(5)` (an array of one element)
   - `a=(1,2); b=(4,5); flat(a,3,b,6)` -> `(1, 2, 3, 4, 5, 6)`
   - `a=(5,2); pow(unpack(a))` -> `25`
   - `len(1,2,3)` -> `3`
@@ -681,41 +749,51 @@ Purpose: aggregate and transform values/lists.
   - `range(1, 4)` -> `(1, 2, 3)`
   - `range(1, 10, 3)` -> `(1, 4, 7)`
   - `range(10, 0, -2)` -> `(10, 8, 6, 4, 2)`
+  - `range(1, 1)` -> `()`
   - `repeat(0, 3)` -> `(0, 0, 0)`
   - `repeat((10, 20), 2)` -> `(10, 20, 10, 20)`
 
 Notes:
 
-- Aggregation functions flatten array inputs.
+- Aggregation functions flatten array inputs. An empty array contributes no values, so `sum((), 1)` -> `1`.
+- When no values remain, the result is `()`. This includes `sum`, `product`/`prod`, `avg`/`mean`, `median`, `variance`, `stddev`, `min`, `max`, `sort`, `reverse`, `unique`, `flat`, `unpack`, `filter`, `sortby`, and `repeat`. A missing argument is still an error. `filter` and `sortby` still require a valid one-parameter function, and `repeat` still requires a positive integer count. `len(())` -> `0`.
 - `variance` and `stddev` use population formulas (`N`, not `N-1`).
 - With complex support enabled (see **Complex Numbers**):
   - `sum`, `product`, `avg`, `reverse`, `repeat`, `unique`, `flat`, `unpack`, and `len`/`length` accept complex scalars and arrays;
   - `min`, `max`, `sort`, `median`, `variance`, and `stddev` do not;
   - `sortby` accepts complex arrays when the key function supports complex scalars (for example `abs`).
+  - `filter` accepts the same element kinds as `sortby` (real scalars, time values, and complex scalars when complex support is on). A nested array literal is flattened before the call, so the predicate receives each scalar.
 
 ### Output Formatting
 
-Purpose: render values in hex/oct/bin.
+Purpose: render values in hex/oct/bin/dec.
 
 - Key functions:
 - `hex(...)` - format output in hexadecimal
 - `oct(...)` - format output in octal
 - `bin(...)` - format output in binary
+- `dec(...)` - format output in decimal
 - `uhex(...)` - unsigned-style hexadecimal formatting
 - `uoct(...)` - unsigned-style octal formatting
 - `ubin(...)` - unsigned-style binary formatting
+- `udec(...)` - unsigned-style decimal formatting
 - Examples:
   - `hex(12)` -> `0xC`
   - `bin(5,11)` -> `(0b101, 0b1011)`
   - `uhex(-1)` -> `0xFFFFFFFFFFFFFFFF`
+  - `dec(-10)` -> `-10`
+  - `udec(-1)` -> `18446744073709551615`
   - `170; hex` -> `0xAA`
   - `(0x5,0x10); oct` -> `(0o5, 0o20)`
   - `0xFFFFFFFF & ~0x123; uhex` -> `0xFFFFFEDC`
+  - `-10; udec` -> `18446744073709551606`
+  - `factorint(40); dec` -> `(8, 5)`
 
 Notes:
 
 - Formatting functions require integer values.
-- `uhex/uoct/ubin` show unsigned 64-bit style for negatives.
+- There is no `0d` prefix (decimal is default).
+- `uhex/uoct/ubin/udec` show unsigned 64-bit style for negatives.
 
 ### Time Conversion
 
@@ -764,7 +842,6 @@ Purpose: complex numbers utilities.
   - `cart((2.236068, 1.107149))` -> `0.999999+2i`
   - `cart(2.236068, 1.107149)` -> `0.999999+2i`
   - `conj(1+2i)` -> `1-2i`
-
 - See also:
   - [Complex Number Operators](#complex-number-operators)
   - [Trigonometric and Hyperbolic With Complex Numbers](#trigonometric-and-hyperbolic-with-complex-numbers)
@@ -784,6 +861,46 @@ Purpose: random values.
   - `random(10,20)` -> random value in `[10,20)`
   - `random(5,5)` -> `5`
 
+### Conditional
+
+Purpose: choose one expression and leave the other unevaluated.
+
+- Key functions:
+- `iif(condition, expr_if_true, expr_if_false)` evaluates either `expr_if_true` or `expr_if_false`, depending on `condition`.
+  - The condition uses the same truth rule as `!`, `&&`, and `||`. False values are `0`, `-0`, `nan`, `0:00`, and `()`. `(0)` is the grouped scalar `0`, so it is false. Everything else is true, including `inf` and any non-empty array such as `(0,0)`. An array condition is one choice, not element-wise: `iif((1,0), 10, 20)` -> `10`.
+  - Both expressions are syntax-checked (tokens, call shape, and argument count), including a lambda body in either branch. Only the selected branch runs, so `rand`, indexing, and domain checks in the other branch do not happen. `&&` and `||` still evaluate both sides; the guard belongs in `iif`.
+- Examples:
+  - `iif(1, 10, 20)` -> `10`
+  - `iif(0, 10, (10,20,30))` -> `(10, 20, 30)`
+  - `iif(1, 1:30, 0)` -> `01:30`
+  - `iif(0, 1:30, ())` -> `()`
+  - `iif(1, 2, (1,2)[9])` -> `2`
+  - `iif(n>=0 && n<len(a), a[n], ())` evaluates `a[n]` only when `n` is inside `a`
+
+### Type tests
+
+Purpose: test the kind of one value. The result is either `1` or `0`, the same kind a comparison returns.
+
+- Key functions:
+- `isinstance(value, type)`
+  - `value` is any expression.
+  - `type` is a bare name: `int`, `float`, `time`, `complex`, `array` or `list`. Names are case-insensitive. `list` means the same as `array`. The first match wins:
+    - an array, including `()` and a one-element array such as `flat(5)`, is `array` / `list`; `(5)` is grouping, so it is the scalar `5`
+    - otherwise a value with a nonzero imaginary part is `complex`; `1+0i` is the real integer `1`; with complex support off, nothing is `complex`
+    - otherwise a duration (`1:30`, `1h`, `minute`) is `time`; `milliseconds(1:30)` is `int` and `seconds(1:30)` is `float`; with time support off, the name `time` is still accepted and the result is `0`
+    - otherwise an exact integer is `int`; that includes signed and unsigned integers, whole values the parser already stores as integers (`1.0`, `2.00`, `1e2`), and values such as `2**63`; `int(3.9)` is the truncation function, and its result is `int`; `isinstance(3.9, int)` is `0`
+    - otherwise a scalar is `float` (`1.5`, `1e20`, `pi`, `nan`, `inf`)
+- Examples:
+  - `isinstance(1, int)` -> `1`
+  - `isinstance(1.5, float)` -> `1`
+  - `isinstance(1:30, time)` -> `1`
+  - `isinstance(milliseconds(1:30), int)` -> `1`
+  - `isinstance(flat(5), array)` -> `1`
+  - `isinstance((5), array)` -> `0`
+  - `isinstance((), list)` -> `1`
+  - `isinstance((1, 2.5), array)` -> `1`
+  - `x=5; iif(isinstance(x, array) && len(x)==1, x[0], x)` -> `5`
+
 ## Advanced Numeric Behavior
 
 ### Advanced Behavior: Integer Accuracy (Int64/UInt64)
@@ -792,6 +909,8 @@ Purpose: random values.
 - It falls back to floating-point when required (for example division or overflow path).
 - Integer-only operators are checked in a defined signed 64-bit domain.
 - Shift count must be in `0..63`.
+- `<<` that overflows the 64-bit range returns a float `x*2**n` (for example `-3 << 62` -> `-1.383505805528216e+019`).
+- `-9223372036854775808/-1` -> `9223372036854775808` (exact unsigned result, not an overflow).
 
 Advanced examples:
 
@@ -814,6 +933,8 @@ Advanced examples:
 
 - `nan == nan` evaluates to `0` (IEEE unordered: NaN is not equal to any value, including another NaN).
 - `nan != nan` is `1`.
+- The same unordered rule applies when a compared array element is `nan`: `flat(nan) == nan` -> `0`, `(1,nan) == (1,nan)` -> `0`, `(1,nan) != (1,nan)` -> `1`, and `flat(nan) < flat(1)` -> `0`.
+- `unique` keeps only the first NaN. Later `nan` and `-nan` values are dropped.
 
 These behaviors may differ from other tools/languages.
 
@@ -857,6 +978,10 @@ These behaviors may differ from other tools/languages.
   - Example: `(10,20)[5]`
   - Fix: use a valid index (`0..len-1` or negative within bounds).
 
+- `cannot assign to an array slice`
+  - Example: `a=(1,2,3); a[0:1]=10`
+  - Fix: assign one index, as in `a[0]=10`, or build a new array.
+
 - `slice step must not be zero`
   - Example: `(1,2,3)[::0]`
   - Fix: use a non-zero integer step.
@@ -888,7 +1013,7 @@ A tight `i` suffix on a numeric literal (decimal/scientific or `0x`/`0b`/`0o`, n
 
 - **Time value support (on by default):** `Parser_SetSupportTimeValues` / `Parser_GetSupportTimeValues`. Default is on: colon and compact unit-suffix duration literals (`1:30`, `1d2h3m4s5ms`), duration constants (`millisecond`, `second`, `minute`, `hour`, `day`), and duration-aware arithmetic, comparisons, aggregates, and converter builtins (`milliseconds`, `seconds`, etc.) are active. When set off, the parser skips time-literal parsing and time-specific evaluation paths (plain numeric parsing only), and duration constants/converters are unavailable.
 
-- **Lambda function support (on by default):** `Parser_SetSupportLambdaFunctions` / `Parser_GetSupportLambdaFunctions`. Default is on: lambda-style user function definitions (`f=x,x+1`, `f=(x,y):(x+y)`, etc.) and anonymous lambda keys in `sortby` (`sortby((3,1,2), x:-x)`) are active. When set off, the parser skips lambda parse and evaluation paths; any input that uses lambda definition syntax fails with `unexpected token`, while ordinary `sortby` with a named function reference (for example `sortby((-3,-1,2), abs)`) still works.
+- **Lambda function support (on by default):** `Parser_SetSupportLambdaFunctions` / `Parser_GetSupportLambdaFunctions`. Default is on: lambda-style user function definitions (`f=x:x+1`, `f=(x,y):(x+y)`, etc.) and anonymous lambdas in `sortby` and `filter` (`sortby((3,1,2), x:-x)`, `filter((1,0,2), x: x)`) are active. When set off, the parser skips lambda parse and evaluation paths; any input that uses lambda definition syntax fails with `unexpected token`, while ordinary `sortby` or `filter` with a named function reference (for example `sortby((-3,-1,2), abs)` or `filter((1,-2,0), abs)`) still works.
 
 ## SmartMath Settings
 

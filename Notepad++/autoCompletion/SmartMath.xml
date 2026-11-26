@@ -113,6 +113,11 @@
 				<Param name="t" />
 			</Overload>
 		</KeyWord>
+		<KeyWord name="dec" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
 		<KeyWord name="deg" func="yes">
 			<Overload retVal="" >
 				<Param name="..." />
@@ -136,6 +141,12 @@
 		<KeyWord name="factorint" func="yes">
 			<Overload retVal="" >
 				<Param name="n" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="filter" func="yes">
+			<Overload retVal="" >
+				<Param name="a" />
+				<Param name="f" />
 			</Overload>
 		</KeyWord>
 		<KeyWord name="flat" func="yes">
@@ -182,6 +193,13 @@
 			</Overload>
 		</KeyWord>
 		<KeyWord name="i" />
+		<KeyWord name="iif" func="yes">
+			<Overload retVal="" >
+				<Param name="cond" />
+				<Param name="expr_true" />
+				<Param name="expr_false" />
+			</Overload>
+		</KeyWord>
 		<KeyWord name="imag" func="yes">
 			<Overload retVal="" >
 				<Param name="c" />
@@ -191,6 +209,12 @@
 		<KeyWord name="int" func="yes">
 			<Overload retVal="" >
 				<Param name="x" />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="isinstance" func="yes">
+			<Overload retVal="" >
+				<Param name="x" />
+				<Param name="type" />
 			</Overload>
 		</KeyWord>
 		<KeyWord name="lcm" func="yes">
@@ -439,6 +463,11 @@
 			</Overload>
 		</KeyWord>
 		<KeyWord name="ubin" func="yes">
+			<Overload retVal="" >
+				<Param name="..." />
+			</Overload>
+		</KeyWord>
+		<KeyWord name="udec" func="yes">
 			<Overload retVal="" >
 				<Param name="..." />
 			</Overload>

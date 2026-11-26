@@ -48,7 +48,7 @@ To compile the plugin yourself:
 These files are developed using AI in the scope of the following project:  
 https://github.com/c-sanchez/AkelPad-Smart-Math  
 It is highly recommended to do all the changes related to the math parser and evaluator there, by means of the existing AI-skills which automatically maintain the documentation and the unit and regression tests.  
-The existing AI-skills are: `add-mathparser-function` and `parser-reusability-cleanup`.  
+The existing AI-skills are: `mathparser-add-or-fix` and `mathparser-refactor`.  
 2. The "Smart-Math*.bas" files are specific to Notepad++ and can be developed separately.
 
 ### 🙏 Special Thanks
